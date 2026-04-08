@@ -19,8 +19,8 @@ where
     C: LinearCode<F, RowMajorMatrix<F>>,
     M: Mmcs<F>,
 {
-    code: C,
-    mmcs: M,
+    pub code: C,
+    pub mmcs: M,
     _marker: PhantomData<F>,
 }
 
@@ -321,69 +321,5 @@ mod tests {
         let enc_sum_expected = RowMajorMatrix::new(enc_sum_expected_vals, 3);
 
         assert_eq!(encoded_sum, enc_sum_expected, "Encoding should be linear");
-    }
-
-    #[test]
-    fn test_tensor_pcs_linearity_scaling() {
-        init_tracing();
-
-        let hash = MyHash::new(KeccakF {});
-        let compress = MyCompress::new(hash);
-        let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
-
-        for log_n in 1..=14 {
-            let n = 1 << log_n;
-            // Use IdentityCode for scaling check
-            let code = IdentityCode { len: n };
-            let pcs = TensorPcs::new(code, mmcs.clone());
-
-            // Generate two matrices of height n
-            let mat_a = RowMajorMatrix::new((0..n * 2).map(|i| F::from_u32(i as u32)).collect(), 2);
-            let mat_b = RowMajorMatrix::new(
-                (0..n * 2).map(|i| F::from_u32(i as u32 + 1000)).collect(),
-                2,
-            );
-
-            let t0 = Instant::now();
-
-            // encode(A + B)
-            let mat_sum = RowMajorMatrix::new(
-                mat_a
-                    .values
-                    .iter()
-                    .zip(mat_b.values.iter())
-                    .map(|(a, b)| *a + *b)
-                    .collect(),
-                2,
-            );
-            let encoded_sum = pcs.code.encode_batch(mat_sum);
-
-            // encode(A) + encode(B)
-            let enc_a = pcs.code.encode_batch(mat_a);
-            let enc_b = pcs.code.encode_batch(mat_b);
-
-            let enc_sum_expected = RowMajorMatrix::new(
-                enc_a
-                    .values
-                    .iter()
-                    .zip(enc_b.values.iter())
-                    .map(|(a, b)| *a + *b)
-                    .collect(),
-                2,
-            );
-
-            let dur = t0.elapsed();
-            assert_eq!(
-                encoded_sum, enc_sum_expected,
-                "Encoding should be linear for log_n = {}",
-                log_n
-            );
-
-            let per_row = dur / n as u32;
-            eprintln!(
-                "  log_n = {:2} (n = {:5}) linearity check took {:?} ({:?} per row)",
-                log_n, n, dur, per_row
-            );
-        }
     }
 }
