@@ -75,9 +75,7 @@ where
     ) -> (Self::Commitment, Self::ProverData) {
         let evals: Vec<_> = evals.into_iter().collect();
 
-        // 1. Encode the rows
-        #[cfg(feature = "std")]
-        let t0 = std::time::Instant::now();
+        // Encode the rows
         let mut encoded_matrices = Vec::with_capacity(evals.len());
         for e in &evals {
             let height = e.height();
@@ -94,20 +92,9 @@ where
             let encoded = self.code.encode_batch(e.clone());
             encoded_matrices.push(encoded);
         }
-        #[cfg(feature = "std")]
-        {
-            let encode_dur = t0.elapsed();
-        }
 
         // Commit to columns via MMCS
-        #[cfg(feature = "std")]
-        let t1 = std::time::Instant::now();
         let (commitment, mmcs_data) = self.mmcs.commit(encoded_matrices.clone());
-        #[cfg(feature = "std")]
-        {
-            let _mmcs_dur = t1.elapsed();
-            let _total = t0.elapsed();
-        }
 
         (
             commitment,
@@ -143,6 +130,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+    #[cfg(feature = "std")]
     use std::time::Instant;
 
     use p3_baby_bear::BabyBear;
