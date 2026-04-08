@@ -1,5 +1,4 @@
 use alloc::vec;
-use alloc::vec::Vec;
 
 use p3_field::{Field, add_scaled_slice_in_place};
 use p3_matrix::Matrix;
@@ -25,7 +24,7 @@ where
         .flat_map(|a_row_idx| {
             let mut c_row = vec![F::ZERO; c_width];
             for &(a_col_idx, a_val) in a.sparse_row(a_row_idx) {
-                let b_row: Vec<F> = b.row(a_col_idx).unwrap().into_iter().collect();
+                let b_row = b.row_slice(a_col_idx).unwrap();
                 add_scaled_slice_in_place(&mut c_row, &b_row, a_val);
             }
             c_row

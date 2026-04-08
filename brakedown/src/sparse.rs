@@ -1,11 +1,11 @@
 use alloc::vec;
 use alloc::vec::Vec;
-use core::iter;
 use core::ops::Range;
 
 use p3_matrix::Matrix;
 use rand::RngExt;
 use rand::distr::{Distribution, StandardUniform};
+use rand::prelude::SliceRandom;
 
 /// A sparse matrix stored in the compressed sparse row format.
 #[derive(Debug)]
@@ -46,9 +46,14 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
         T: Default,
         StandardUniform: Distribution<T>,
     {
-        let nonzero_values = iter::repeat_with(|| (rng.random_range(0..cols), rng.random()))
-            .take(rows * row_weight)
-            .collect();
+        let mut nonzero_values = Vec::with_capacity(rows * row_weight);
+        for _ in 0..rows {
+            let mut indices: Vec<usize> = (0..cols).collect();
+            let (sampled, _) = indices.partial_shuffle(rng, row_weight);
+            for idx in sampled {
+                nonzero_values.push((*idx, rng.random()));
+            }
+        }
         let row_indices = (0..=rows).map(|r| r * row_weight).collect();
         Self {
             width: cols,
