@@ -41,6 +41,9 @@ p3-commit = { path = "../commit", features = ["test-utils"] }
 p3-dft = { path = "../dft" }
 p3-koala-bear = { path = "../koala-bear" }
 p3-matrix = { path = "../matrix" }
+serde_json.workspace = true
+sha2.workspace = true
+tracing.workspace = true
 
 tracing-forest = { workspace = true, features = ["ansi", "smallvec"] }
 tracing-subscriber = { workspace = true, features = ["std", "env-filter"] }
