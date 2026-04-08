@@ -72,7 +72,7 @@ where
     fn codeword_len(&self, message_len: usize) -> Option<usize> {
         for c in &self.codes {
             if c.message_len() == message_len {
-                return Some(c.message_len());
+                return Some(c.codeword_len());
             }
         }
         None

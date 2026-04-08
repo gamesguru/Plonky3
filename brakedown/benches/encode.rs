@@ -6,7 +6,7 @@ use p3_code::CodeOrFamily;
 use p3_field::Field;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_mersenne_31::Mersenne31;
-use rand::distributions::{Distribution, Standard};
+use rand::distr::{Distribution, Standard};
 use rand::thread_rng;
 
 const BATCH_SIZE: usize = 1 << 12;

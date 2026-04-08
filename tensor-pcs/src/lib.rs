@@ -1,3 +1,4 @@
+#![no_std]
 pub mod multilinear_pcs;
 pub mod tensor_pcs;
 

@@ -6,12 +6,13 @@ use core::marker::PhantomData;
 use p3_code::{LinearCode, SystematicCode};
 use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field};
+use p3_matrix::Matrix;
 use p3_matrix::dense::RowMajorMatrix;
 use serde::{Deserialize, Serialize};
 
 use crate::MultilinearPcs;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct TensorPcs<F, C, M>
 where
     F: Field,
@@ -73,26 +74,40 @@ where
         evals: impl IntoIterator<Item = RowMajorMatrix<F>>,
     ) -> (Self::Commitment, Self::ProverData) {
         let evals: Vec<_> = evals.into_iter().collect();
-        // println!("TensorPcs::commit start | num_matrices: {}", evals.len());
 
         // 1. Encode the rows
+        #[cfg(feature = "std")]
         let t0 = std::time::Instant::now();
         let mut encoded_matrices = Vec::with_capacity(evals.len());
         for e in &evals {
+            let height = e.height();
+            assert!(
+                height.is_power_of_two(),
+                "Matrix height must be a power of two"
+            );
+            assert_eq!(
+                height,
+                self.code.message_len(),
+                "Matrix height must match the code's message length"
+            );
+
             let encoded = self.code.encode_batch(e.clone());
             encoded_matrices.push(encoded);
         }
-        let _encode_dur = t0.elapsed();
-        // println!("  encode phase done | encode_dur: {:?}", _encode_dur); // Removed noise
+        #[cfg(feature = "std")]
+        {
+            let encode_dur = t0.elapsed();
+        }
 
         // Commit to columns via MMCS
+        #[cfg(feature = "std")]
         let t1 = std::time::Instant::now();
         let (commitment, mmcs_data) = self.mmcs.commit(encoded_matrices.clone());
-        let _mmcs_dur = t1.elapsed();
-        // println!("  MMCS commit phase done | mmcs_dur: {:?}", _mmcs_dur); // Removed noise
-
-        let _total = t0.elapsed();
-        // println!("TensorPcs::commit finished | total: {:?}", total); // Removed noise
+        #[cfg(feature = "std")]
+        {
+            let _mmcs_dur = t1.elapsed();
+            let _total = t0.elapsed();
+        }
 
         (
             commitment,
@@ -174,7 +189,7 @@ mod tests {
         let pcs = TensorPcs::new(code, mmcs);
 
         // Create a 4x3 evaluation matrix (4 rows, 3 polynomials)
-        // This represents evaluations of 3 multilinear polys over {0,1}^2
+        // This represents evaluations of multilinear polys over {0,1}^2
         let values: Vec<F> = (1..=12).map(|i| F::from_u32(i)).collect();
         let evals = RowMajorMatrix::new(values.clone(), 3);
 
