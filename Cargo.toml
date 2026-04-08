@@ -7,8 +7,10 @@ members = [
     "blake3",
     "blake3-air",
     "bn254",
+    "brakedown",
     "challenger",
     "circle",
+    "code",
     "commit",
     "dft",
     "examples",
@@ -20,6 +22,7 @@ members = [
     "keccak",
     "keccak-air",
     "koala-bear",
+    "lde",
     "lookup",
     "matrix",
     "maybe-rayon",
@@ -33,17 +36,14 @@ members = [
     "poseidon1-air",
     "poseidon2",
     "poseidon2-air",
+    "reed-solomon",
     "rescue",
     "sha256",
     "symmetric",
+    "tensor-pcs",
     "uni-stark",
     "util",
     "whir",
-    "code",
-    "brakedown",
-    "reed-solomon",
-    "tensor-pcs",
-    "lde",
 ]
 
 [workspace.lints]
@@ -101,8 +101,10 @@ p3-baby-bear = { path = "baby-bear", version = "0.5.1" }
 p3-blake3 = { path = "blake3", version = "0.5.1" }
 p3-blake3-air = { path = "blake3-air", version = "0.5.1" }
 p3-bn254 = { path = "bn254", version = "0.5.1" }
+p3-brakedown = { path = "brakedown", version = "0.5.1" }
 p3-challenger = { path = "challenger", version = "0.5.1" }
 p3-circle = { path = "circle", version = "0.5.1" }
+p3-code = { path = "code", version = "0.5.1" }
 p3-commit = { path = "commit", version = "0.5.1" }
 p3-dft = { path = "dft", version = "0.5.1" }
 p3-examples = { path = "examples", version = "0.3.0" }
@@ -114,6 +116,7 @@ p3-interpolation = { path = "interpolation", version = "0.5.1" }
 p3-keccak = { path = "keccak", version = "0.5.1" }
 p3-keccak-air = { path = "keccak-air", version = "0.5.1" }
 p3-koala-bear = { path = "koala-bear", version = "0.5.1" }
+p3-lde = { path = "lde", version = "0.5.1" }
 p3-lookup = { path = "lookup", version = "0.5.1" }
 p3-matrix = { path = "matrix", version = "0.5.1" }
 p3-maybe-rayon = { path = "maybe-rayon", version = "0.5.1" }
@@ -126,17 +129,14 @@ p3-poseidon1 = { path = "poseidon1", version = "0.5.1" }
 p3-poseidon1-air = { path = "poseidon1-air", version = "0.5.1" }
 p3-poseidon2 = { path = "poseidon2", version = "0.5.1" }
 p3-poseidon2-air = { path = "poseidon2-air", version = "0.5.1" }
+p3-reed-solomon = { path = "reed-solomon", version = "0.5.1" }
 p3-rescue = { path = "rescue", version = "0.5.1" }
 p3-sha256 = { path = "sha256", version = "0.5.1" }
 p3-symmetric = { path = "symmetric", version = "0.5.1" }
+p3-tensor-pcs = { path = "tensor-pcs", version = "0.5.1" }
 p3-uni-stark = { path = "uni-stark", version = "0.5.1" }
 p3-util = { path = "util", version = "0.5.1" }
 p3-whir = { path = "whir", version = "0.5.1" }
-p3-code = { path = "code", version = "0.5.1" }
-p3-brakedown = { path = "brakedown", version = "0.5.1" }
-p3-reed-solomon = { path = "reed-solomon", version = "0.5.1" }
-p3-tensor-pcs = { path = "tensor-pcs", version = "0.5.1" }
-p3-lde = { path = "lde", version = "0.5.1" }
 
 [workspace.package]
 # General description field used for the sub-crates that are currently missing a description.

@@ -30,7 +30,7 @@ Generalized vector commitment schemes
 
 Polynomial commitment schemes
 - [x] FRI-based PCS
-- [ ] tensor PCS
+- [x] tensor PCS
 - [ ] univariate-to-multivariate adapter
 - [ ] multivariate-to-univariate adapter
 

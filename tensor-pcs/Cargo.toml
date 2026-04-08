@@ -16,15 +16,15 @@ p3-commit.workspace = true
 p3-field.workspace = true
 p3-matrix.workspace = true
 p3-maybe-rayon.workspace = true
-p3-util.workspace = true
 p3-multilinear-util.workspace = true
+p3-util.workspace = true
 serde = { workspace = true, features = ["derive", "alloc"] }
 
 [dev-dependencies]
-p3-brakedown = { path = "../brakedown" }
 p3-baby-bear = { path = "../baby-bear" }
-p3-merkle-tree = { path = "../merkle-tree" }
+p3-brakedown = { path = "../brakedown" }
 p3-keccak = { path = "../keccak" }
+p3-merkle-tree = { path = "../merkle-tree" }
 p3-symmetric = { path = "../symmetric" }
 
 [features]
