@@ -8,7 +8,6 @@ use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrix;
 use serde::{Deserialize, Serialize};
-use tracing::info;
 
 use crate::MultilinearPcs;
 
@@ -74,7 +73,7 @@ where
         evals: impl IntoIterator<Item = RowMajorMatrix<F>>,
     ) -> (Self::Commitment, Self::ProverData) {
         let evals: Vec<_> = evals.into_iter().collect();
-        info!(num_matrices = evals.len(), "TensorPcs::commit start");
+        // println!("TensorPcs::commit start | num_matrices: {}", evals.len());
 
         // 1. Encode the rows
         let t0 = std::time::Instant::now();
@@ -83,17 +82,17 @@ where
             let encoded = self.code.encode_batch(e.clone());
             encoded_matrices.push(encoded);
         }
-        let encode_dur = t0.elapsed();
-        info!(?encode_dur, "  encode phase done");
+        let _encode_dur = t0.elapsed();
+        // println!("  encode phase done | encode_dur: {:?}", _encode_dur); // Removed noise
 
         // Commit to columns via MMCS
         let t1 = std::time::Instant::now();
         let (commitment, mmcs_data) = self.mmcs.commit(encoded_matrices.clone());
-        let mmcs_dur = t1.elapsed();
-        info!(?mmcs_dur, "  MMCS commit phase done");
+        let _mmcs_dur = t1.elapsed();
+        // println!("  MMCS commit phase done | mmcs_dur: {:?}", _mmcs_dur); // Removed noise
 
-        let total = t0.elapsed();
-        info!(?total, "TensorPcs::commit finished");
+        let _total = t0.elapsed();
+        // println!("TensorPcs::commit finished | total: {:?}", total); // Removed noise
 
         (
             commitment,
@@ -139,23 +138,8 @@ mod tests {
     use p3_matrix::dense::RowMajorMatrix;
     use p3_merkle_tree::MerkleTreeMmcs;
     use p3_symmetric::{CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher};
-    use tracing_forest::ForestLayer;
-    use tracing_forest::util::LevelFilter;
-    use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::util::SubscriberInitExt;
-    use tracing_subscriber::{EnvFilter, Registry};
 
     use super::*;
-
-    fn init_tracing() {
-        let env_filter = EnvFilter::builder()
-            .with_default_directive(LevelFilter::INFO.into())
-            .from_env_lossy();
-        let _ = Registry::default()
-            .with(env_filter)
-            .with(ForestLayer::default())
-            .try_init();
-    }
 
     type F = BabyBear;
     const VECTOR_LEN: usize = p3_keccak::VECTOR_LEN;
@@ -177,7 +161,6 @@ mod tests {
     /// - Call commit & assert prover data is valid
     #[test]
     fn test_tensor_pcs_commit_identity_code() {
-        init_tracing();
         let t_start = Instant::now();
 
         // Setup hash + compression for Merkle tree
@@ -230,7 +213,6 @@ mod tests {
 
     #[test]
     fn test_tensor_pcs_commit_brakedown() {
-        init_tracing();
         let t_start = Instant::now();
 
         let hash = MyHash::new(KeccakF {});
@@ -259,7 +241,6 @@ mod tests {
     /// Test committing to multiple polynomials at once
     #[test]
     fn test_tensor_pcs_commit_multiple_polys() {
-        init_tracing();
         let t_start = Instant::now();
 
         let hash = MyHash::new(KeccakF {});
@@ -290,7 +271,6 @@ mod tests {
 
     #[test]
     fn test_tensor_pcs_linearity() {
-        init_tracing();
         let hash = MyHash::new(KeccakF {});
         let compress = MyCompress::new(hash);
         let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);

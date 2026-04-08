@@ -8,21 +8,6 @@ use p3_matrix::dense::RowMajorMatrix;
 use p3_merkle_tree::MerkleTreeMmcs;
 use p3_symmetric::{CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher};
 use p3_tensor_pcs::{MultilinearPcs, TensorPcs};
-use tracing_forest::ForestLayer;
-use tracing_forest::util::LevelFilter;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::util::SubscriberInitExt;
-use tracing_subscriber::{EnvFilter, Registry};
-
-fn init_tracing() {
-    let env_filter = EnvFilter::builder()
-        .with_default_directive(LevelFilter::INFO.into())
-        .from_env_lossy();
-    let _ = Registry::default()
-        .with(env_filter)
-        .with(ForestLayer::default())
-        .try_init();
-}
 
 type F = BabyBear;
 const VECTOR_LEN: usize = p3_keccak::VECTOR_LEN;
@@ -33,38 +18,46 @@ type MyMmcs =
 
 #[test]
 fn test_tensor_pcs_scaling_suite() {
-    init_tracing();
-
     let hash = MyHash::new(KeccakF {});
     let compress = MyCompress::new(hash);
     let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
 
     println!("\n=== Tensor PCS Scaling Suite (All Directions) ===");
 
-    // 1. Breadth Scaling (Fixed Depth, Varying Number of Polys)
-    println!("\n--- Breadth Scaling (log_n=12, n=4096, varying m) ---");
-    for m in [1, 10, 50, 100] {
-        let n = 1 << 12;
-        let code = IdentityCode { len: n };
-        let pcs = TensorPcs::new(code, mmcs.clone());
-        let evals = (0..m)
-            .map(|_| RowMajorMatrix::new(vec![F::ZERO; n], 1))
-            .collect::<Vec<_>>();
+    // 1. Breadth Scaling (Varying Depth n and Number of Polys m)
+    println!("\n--- Breadth Scaling (varying log_n and m) ---");
+    for log_n in [12, 14, 16] {
+        let n = 1 << log_n;
+        // Only do large m=100 for the small depth log_n=12,14 to save time
+        let m_cases = if log_n <= 14 {
+            vec![1, 10, 100]
+        } else {
+            vec![1, 10]
+        };
+        for m in m_cases {
+            let code = IdentityCode { len: n };
+            let pcs = TensorPcs::new(code, mmcs.clone());
+            let evals = (0..m)
+                .map(|_| RowMajorMatrix::new(vec![F::ZERO; n], 1))
+                .collect::<Vec<_>>();
 
-        let t0 = Instant::now();
-        let _ = <TensorPcs<F, IdentityCode, MyMmcs> as MultilinearPcs<F, F>>::commit(&pcs, evals);
-        let dur = t0.elapsed();
-        println!(
-            "  m = {:3} polynomials | Commit took {:?} ({:?} per poly)",
-            m,
-            dur,
-            dur / m as u32
-        );
+            let t0 = Instant::now();
+            let _ =
+                <TensorPcs<F, IdentityCode, MyMmcs> as MultilinearPcs<F, F>>::commit(&pcs, evals);
+            let dur = t0.elapsed();
+            println!(
+                "  log_n = {:2}, m = {:3} polynomials | Commit took {:15?} ({:11?} per poly)",
+                log_n,
+                m,
+                dur,
+                dur / m as u32
+            );
+        }
     }
 
     // 2. Transposition Scaling (Depth)
     println!("\n--- Transposition Scaling (varying log_n) ---");
-    for log_n in [10, 14, 18, 20] {
+    for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
         let width = 1 << (log_n / 2);
         let height = 1 << (log_n - log_n / 2);
@@ -79,7 +72,7 @@ fn test_tensor_pcs_scaling_suite() {
         }
         let dur = t0.elapsed();
         println!(
-            "  log_n = {:2} (n = {:7}) | Transpose took {:?} ({:?} per element)",
+            "  log_n = {:2} (n = {:8}) | Transpose took {:10?} ({:6?} per element)",
             log_n,
             n,
             dur,
@@ -89,7 +82,7 @@ fn test_tensor_pcs_scaling_suite() {
 
     // 3. Folding Round Simulation (Linearity in Opening)
     println!("\n--- Folding Round Simulation (Sumcheck Step) ---");
-    for log_n in [10, 14, 18, 20] {
+    for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
         let vals: Vec<F> = (0..n).map(|i| F::from_u32(i as u32)).collect();
 
@@ -101,7 +94,7 @@ fn test_tensor_pcs_scaling_suite() {
         }
         let dur = t0.elapsed();
         println!(
-            "  log_n = {:2} (n = {:7}) | Folding Round took {:?} ({:?} per input element)",
+            "  log_n = {:2} (n = {:8}) | Folding took {:12?} ({:6?} per input element)",
             log_n,
             n,
             dur,
@@ -111,7 +104,7 @@ fn test_tensor_pcs_scaling_suite() {
 
     // 4. Hadamard Product Scaling (Constraint Evaluation)
     println!("\n--- Hadamard Product Scaling (A * B) ---");
-    for log_n in [10, 14, 18, 20] {
+    for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
         let vals_a: Vec<F> = (0..n).map(|i| F::from_u32(i as u32)).collect();
         let vals_b: Vec<F> = (0..n).map(|i| F::from_u32(i as u32 + 7)).collect();
@@ -123,25 +116,17 @@ fn test_tensor_pcs_scaling_suite() {
         }
         let dur = t0.elapsed();
         println!(
-            "  log_n = {:2} (n = {:7}) | Hadamard took {:?} ({:?} per element)",
+            "  log_n = {:2} (n = {:8}) | Hadamard took {:11?} ({:6?} per element)",
             log_n,
             n,
             dur,
             dur / n as u32
         );
     }
-}
 
-#[test]
-fn test_tensor_pcs_linearity_scaling() {
-    init_tracing();
-
-    let hash = MyHash::new(KeccakF {});
-    let compress = MyCompress::new(hash);
-    let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
-
-    println!("\n--- Linearity Scaling (Depth up to 20 bits) ---");
-    for log_n in [10, 14, 18, 20] {
+    // 5. Linearity Scaling (Depth)
+    println!("\n--- Linearity Scaling (Depth up to 24 bits) ---");
+    for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
         let code = IdentityCode { len: n };
         let pcs = TensorPcs::new(code, mmcs.clone());
@@ -176,7 +161,7 @@ fn test_tensor_pcs_linearity_scaling() {
         assert_eq!(encoded_sum, enc_sum_expected);
         let dur = t0.elapsed();
         println!(
-            "  log_n = {:2} (n = {:7}) | Linearity Check took {:?} ({:?} per row)",
+            "  log_n = {:2} (n = {:8}) | Linearity took {:11?} ({:6?} per row)",
             log_n,
             n,
             dur,
