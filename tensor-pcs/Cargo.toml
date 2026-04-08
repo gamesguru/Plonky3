@@ -26,6 +26,8 @@ p3-brakedown = { path = "../brakedown" }
 p3-keccak = { path = "../keccak" }
 p3-merkle-tree = { path = "../merkle-tree" }
 p3-symmetric = { path = "../symmetric" }
+rand = { workspace = true }
+rand_chacha = "0.10"
 
 [features]
 default = ["std"]

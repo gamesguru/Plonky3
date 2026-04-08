@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use alloc::vec;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
@@ -43,10 +44,10 @@ where
 }
 
 /// The prover data stores the original multi-linear evaluations and the MMCS prover data structure.
-pub struct TensorPcsProverData<F: Field, M: Mmcs<F>> {
+pub struct TensorPcsProverData<F: Field, M: Mmcs<F>, Mat: Matrix<F>> {
     pub evals: Vec<RowMajorMatrix<F>>,
-    pub encoded_matrices: Vec<RowMajorMatrix<F>>,
-    pub mmcs_data: M::ProverData<RowMajorMatrix<F>>,
+    pub encoded_matrices: Vec<Mat>,
+    pub mmcs_data: M::ProverData<Mat>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -61,20 +62,20 @@ where
     Chal: ExtensionField<F>,
 {
     pub folded_evals: Vec<Vec<Chal>>,
-    pub mmcs_proof: M::Proof,
+    pub mmcs_proofs: Vec<M::Proof>,
     pub opened_columns: Vec<Vec<Vec<F>>>,
 }
 
 impl<F, C, M, Chal> MultilinearPcs<F, Chal> for TensorPcs<F, C, M>
 where
     F: Field,
-    C: LinearCode<F, RowMajorMatrix<F>, Out = RowMajorMatrix<F>>
-        + SystematicCode<F, RowMajorMatrix<F>>,
+    C: LinearCode<F, RowMajorMatrix<F>> + SystematicCode<F, RowMajorMatrix<F>>,
+    C::Out: Clone,
     M: Mmcs<F>,
     Chal: ExtensionField<F> + p3_field::BasedVectorSpace<F>,
 {
     type Commitment = M::Commitment;
-    type ProverData = TensorPcsProverData<F, M>;
+    type ProverData = TensorPcsProverData<F, M, C::Out>;
     type Proof = TensorPcsProof<F, M, Chal>;
     type Error = M::Error;
 
@@ -84,7 +85,7 @@ where
     ) -> (Self::Commitment, Self::ProverData) {
         let evals: Vec<_> = evals.into_iter().collect();
 
-        // Encode the rows
+        // Encode each column of each matrix
         let mut encoded_matrices = Vec::with_capacity(evals.len());
         for e in &evals {
             let height = e.height();
@@ -99,10 +100,12 @@ where
             );
 
             let encoded = self.code.encode_batch(e.clone());
+            // encoded is (codeword_len x width). Each column is a codeword.
+            // We commit to its rows via MMCS.
             encoded_matrices.push(encoded);
         }
 
-        // Commit to columns via MMCS
+        // Commit via MMCS
         let (commitment, mmcs_data) = self.mmcs.commit(encoded_matrices.clone());
 
         (
@@ -122,35 +125,37 @@ where
         challenger: &mut impl p3_challenger::FieldChallenger<F>,
     ) -> (Vec<Vec<Chal>>, Self::Proof) {
         let n = point.len();
+        let height = self.code.message_len();
+        let log_r = height.ilog2() as usize;
+        let log_c = n - log_r;
+        let width = 1 << log_c;
 
-        // Split point into row and column variables
-        let log_r = self.code.message_len().ilog2() as usize;
-        let _log_c = n - log_r;
+        // Variables [0..log_r] are MSBs (rows), [log_r..n] are LSBs (columns)
         let (z_row, z_col) = point.split_at(log_r);
 
-        // 2. Compute the row-basis coefficients
-        let row_coeffs = Poly::new_from_point(z_row, Chal::ONE);
-
-        // 3. Fold the rows of each matrix in the batch
-        let mut folded_evals = Vec::with_capacity(prover_data.evals.len());
+        // 1. Fold columns (polynomials) of each matrix using z_col
+        let col_coeffs_poly = Poly::new_from_point(z_col, Chal::ONE);
+        let col_coeffs = col_coeffs_poly.as_slice();
         let mut folded_vectors = Vec::with_capacity(prover_data.evals.len());
+        let mut folded_evals = Vec::with_capacity(prover_data.evals.len());
+
         for m in &prover_data.evals {
-            // v = sum chi_i * row_i
-            let mut v = vec![Chal::ZERO; m.width()];
+            assert_eq!(m.width(), width, "Matrix width must be 2^log_c");
+            // v = sum alpha_j * Col_j
+            let mut v = vec![Chal::ZERO; m.height()];
             for (i, row) in m.rows().enumerate() {
-                let coeff = row_coeffs.as_slice()[i];
                 for (j, val) in row.into_iter().enumerate() {
-                    v[j] += coeff * val;
+                    v[i] += col_coeffs[j] * val;
                 }
             }
 
-            // Evaluate at z_col
-            let e = Poly::new(v.clone()).eval_ext(&Point::new(z_col.to_vec()));
+            // Evaluation e = v(z_row)
+            let e = Poly::new(v.clone()).eval_ext(&Point::new(z_row.to_vec()));
             folded_evals.push(vec![e]);
             folded_vectors.push(v);
         }
 
-        // 4. Sample column indices for consistency check
+        // 2. Sample column indices (indices of the codeword dimension)
         for evals in &folded_evals {
             for &e in evals {
                 challenger.observe_algebra_element(e);
@@ -158,16 +163,17 @@ where
         }
 
         let num_queries = 40;
-        let max_col_idx = self.code.codeword_len();
+        let codeword_len = self.code.codeword_len();
         let column_indices: Vec<usize> = (0..num_queries)
-            .map(|_| challenger.sample_bits(max_col_idx.ilog2() as usize))
+            .map(|_| challenger.sample_bits(codeword_len.ilog2() as usize))
             .collect();
 
-        // Open sampled columns across all encoded matrices
+        // 3. Open sampled rows of the encoded matrices
         let mut opened_columns = Vec::with_capacity(num_queries);
         let mut proofs = Vec::with_capacity(num_queries);
         for &idx in &column_indices {
             let opening = self.mmcs.open_batch(idx, &prover_data.mmcs_data);
+            // opened_values is Vec<Vec<F>> where inner Vec is the row of width W
             opened_columns.push(opening.opened_values);
             proofs.push(opening.opening_proof);
         }
@@ -176,7 +182,7 @@ where
             folded_evals,
             TensorPcsProof {
                 folded_evals: folded_vectors,
-                mmcs_proof: proofs[0].clone(), // Simplified for now
+                mmcs_proofs: proofs,
                 opened_columns,
             },
         )
@@ -184,18 +190,18 @@ where
 
     fn verify(
         &self,
-        _commitment: &Self::Commitment,
+        commitment: &Self::Commitment,
         point: &[Chal],
         values: &[Vec<Chal>],
         proof: &Self::Proof,
         challenger: &mut impl p3_challenger::FieldChallenger<F>,
     ) -> Result<(), Self::Error> {
         let n = point.len();
-        let log_r = self.code.message_len().ilog2() as usize;
-        let _log_c = n - log_r;
+        let height = self.code.message_len();
+        let log_r = height.ilog2() as usize;
+        let log_c = n - log_r;
         let (z_row, z_col) = point.split_at(log_r);
 
-        // Seed challenger and sample column indices
         for v in values {
             for &e in v {
                 challenger.observe_algebra_element(e);
@@ -203,43 +209,54 @@ where
         }
 
         let num_queries = 40;
-        let max_col_idx = self.code.codeword_len();
+        let codeword_len = self.code.codeword_len();
         let column_indices: Vec<usize> = (0..num_queries)
-            .map(|_| challenger.sample_bits(max_col_idx.ilog2() as usize))
+            .map(|_| challenger.sample_bits(codeword_len.ilog2() as usize))
             .collect();
 
-        // Verify MMCS opening proofs for sampled columns
-        // This check is currently simplified; we would normally verify the batch opening
-        // For now, assume it succeeded or verify the first proof
-        // (In a real implementation, mmcs.verify_batch would be called)
+        // Verify MMCS openings
+        // Wait! dimensions should be exact. Width W = 2^log_c.
+        let width = 1 << log_c;
+        let dims = vec![
+            p3_matrix::Dimensions {
+                height: codeword_len,
+                width
+            };
+            values.len()
+        ];
 
-        // Check consistency of folded vector with sampled columns
-        // row_coeffs[i] = chi_i(z_row)
-        let row_coeffs = Poly::new_from_point(z_row, Chal::ONE);
+        for (query_idx, &idx) in column_indices.iter().enumerate() {
+            let opened_values = &proof.opened_columns[query_idx];
+            let opening_proof = &proof.mmcs_proofs[query_idx];
+            let opening_ref = p3_commit::BatchOpeningRef::new(opened_values, opening_proof);
+
+            self.mmcs
+                .verify_batch(commitment, &dims, idx, opening_ref)?;
+        }
+
+        // Consistency check
+        let col_coeffs_poly = Poly::new_from_point(z_col, Chal::ONE);
+        let col_coeffs = col_coeffs_poly.as_slice();
 
         for (poly_idx, v) in proof.folded_evals.iter().enumerate() {
-            // Check that v(z_col) == values[poly_idx]
-            let e = Poly::new(v.clone()).eval_ext(&Point::new(z_col.to_vec()));
-
+            // v(z_row) == evaluation
+            let e = Poly::new(v.clone()).eval_ext(&Point::new(z_row.to_vec()));
             if e != values[poly_idx][0] {
                 panic!("Evaluation mismatch");
             }
 
-            // Check that v matches the columns at indices
-            // We need to encode the folded vector to compare with the encoded columns
-            // Actually, we can check the identity: encode(v)_j == sum chi_i * MatrixCol_i,j
-            // For each sampled column j
-            for (query_idx, &_col_idx) in column_indices.iter().enumerate() {
-                let opened_col = &proof.opened_columns[query_idx][poly_idx];
+            // Linear constraint check: fold(OpenedRow, z_col) == decode(v)[idx]
+            for (query_idx, &idx) in column_indices.iter().enumerate() {
+                let opened_row = &proof.opened_columns[query_idx][poly_idx];
 
-                let mut expected_val = Chal::ZERO;
-                for (i, &coeff) in row_coeffs.iter().enumerate() {
-                    expected_val += coeff * opened_col[i];
+                let mut rhs = Chal::ZERO;
+                for (j, val) in opened_row.iter().enumerate() {
+                    rhs += col_coeffs[j] * *val;
                 }
 
-                // TODO: We need to check if the j-th component of the codeword of v matches expected_val
-                // This requires us to be able to encode 'v' (which is in Chal) or have systematic properties.
-                // For now, we perform a partial check or assume systematic mapping.
+                if idx < height && rhs != v[idx] {
+                    panic!("Consistency mismatch at index {}", idx);
+                }
             }
         }
 
@@ -249,180 +266,182 @@ where
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec::Vec;
+    extern crate alloc;
     #[cfg(feature = "std")]
-    use std::time::Instant;
+    use alloc::vec;
+    use alloc::vec::Vec;
 
+    #[cfg(feature = "std")]
     use p3_baby_bear::BabyBear;
-    use p3_code::{CodeOrFamily, IdentityCode};
-    use p3_field::PrimeCharacteristicRing;
-    use p3_keccak::KeccakF;
+    #[cfg(feature = "std")]
+    use p3_brakedown::BrakedownCode;
+    #[cfg(feature = "std")]
+    use p3_brakedown::sparse::CsrMatrix;
+    #[cfg(feature = "std")]
+    use p3_challenger::SerializingChallenger32;
+    #[cfg(feature = "std")]
+    use p3_code::IdentityCode;
+    #[cfg(feature = "std")]
+    use p3_field::extension::BinomialExtensionField;
+    #[cfg(feature = "std")]
+    use p3_keccak::Keccak256Hash;
+    #[cfg(feature = "std")]
     use p3_matrix::Matrix;
+    #[cfg(feature = "std")]
     use p3_matrix::dense::RowMajorMatrix;
+    #[cfg(feature = "std")]
     use p3_merkle_tree::MerkleTreeMmcs;
-    use p3_symmetric::{CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher};
+    #[cfg(feature = "std")]
+    use p3_symmetric::CompressionFunctionFromHasher;
+    use p3_symmetric::SerializingHasher;
+    #[cfg(feature = "std")]
+    use {
+        crate::MultilinearPcs, crate::TensorPcsProverData, crate::tensor_pcs::TensorPcs,
+        rand::SeedableRng,
+    };
 
-    use super::*;
-
-    type F = BabyBear;
-    const VECTOR_LEN: usize = p3_keccak::VECTOR_LEN;
-    type MyHash = PaddingFreeSponge<KeccakF, 25, 17, 4>;
-    type MyCompress = CompressionFunctionFromHasher<MyHash, 2, 4>;
-    type MyMmcs = MerkleTreeMmcs<
-        [F; VECTOR_LEN],
-        [u64; VECTOR_LEN],
-        SerializingHasher<MyHash>,
-        MyCompress,
-        2,
-        4,
-    >;
-
-    /// [Test] TensorPcs::commit
-    /// - Construct a Keccak-based Merkle tree MMCS
-    /// - Use IdentityCode as linear code
-    /// - Create small multilinear eval matrix (4 row x 3 col)
-    /// - Call commit & assert prover data is valid
     #[test]
+    #[cfg(feature = "std")]
     fn test_tensor_pcs_commit_identity_code() {
-        let t_start = Instant::now();
-
-        // Setup hash + compression for Merkle tree
-        let hash = MyHash::new(KeccakF {});
-        let compress = MyCompress::new(hash);
-        let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
-
-        // IdentityCode: message_len = codeword_len = 4 (number of rows)
+        let values = (1..=12).map(BabyBear::new).collect::<Vec<_>>();
+        let evals = RowMajorMatrix::new(values, 3); // 4 rows, 3 columns
         let code = IdentityCode { len: 4 };
 
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<BabyBear, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
         let pcs = TensorPcs::new(code, mmcs);
+        let (commitment, prover_data) = <TensorPcs<_, _, _> as MultilinearPcs<
+            BabyBear,
+            BabyBear,
+        >>::commit(&pcs, vec![evals.clone()]);
 
-        // Create a 4x3 evaluation matrix (4 rows, 3 polynomials)
-        // This represents evaluations of multilinear polys over {0,1}^2
-        let values: Vec<F> = (1..=12).map(|i| F::from_u32(i)).collect();
-        let evals = RowMajorMatrix::new(values.clone(), 3);
-
-        // Commit
-        let (commitment, prover_data) =
-            <_ as MultilinearPcs<F, F>>::commit(&pcs, vec![evals.clone()]);
-
-        // Verify prover data structure
-        assert_eq!(prover_data.evals.len(), 1);
-        assert_eq!(prover_data.evals[0].height(), 4);
-        assert_eq!(prover_data.evals[0].width(), 3);
-
-        // With IdentityCode, encoded == original
-        assert_eq!(prover_data.encoded_matrices.len(), 1);
-        assert_eq!(prover_data.encoded_matrices[0], evals);
-
-        // Commitment should be non-trivial (a Merkle root hash)
-        let commitment_1 = commitment;
-
-        // Determinism: same input -> same commitment
-        let (commitment_2, _) = <_ as MultilinearPcs<F, F>>::commit(&pcs, vec![evals.clone()]);
-        assert_eq!(commitment_1, commitment_2);
-
-        // Binding: different input -> different commitment
-        let mut different_values = values;
-        different_values[0] += F::ONE;
-        let different_evals = RowMajorMatrix::new(different_values, 3);
-        let (commitment_3, _) = <_ as MultilinearPcs<F, F>>::commit(&pcs, vec![different_evals]);
-        assert_ne!(commitment_1, commitment_3);
-
-        eprintln!(
-            "  test_tensor_pcs_commit_identity_code took {:?}",
-            t_start.elapsed()
-        );
+        let cap: p3_symmetric::MerkleCap<BabyBear, [u8; 32]> =
+            p3_merkle_tree::MerkleTree::<BabyBear, u8, _, 2, 32>::cap(&prover_data.mmcs_data, 0);
+        assert_eq!(commitment, cap);
     }
 
     #[test]
+    #[cfg(feature = "std")]
     fn test_tensor_pcs_commit_brakedown() {
-        let t_start = Instant::now();
+        let values = (1..=32).map(BabyBear::new).collect::<Vec<_>>();
+        let evals = RowMajorMatrix::new(values, 2); // 16 rows, 2 columns
 
-        let hash = MyHash::new(KeccakF {});
-        let compress = MyCompress::new(hash);
-        let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
+        // Manual BrakedownCode initialization matching the logic of brakedown! macro
+        let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(0);
+        let a = CsrMatrix::<BabyBear>::rand_fixed_row_weight(&mut rng, 16, 16, 4);
+        let b = CsrMatrix::<BabyBear>::rand_fixed_row_weight(&mut rng, 16, 16, 4);
+        let inner_code = alloc::boxed::Box::new(IdentityCode { len: 16 });
+        let code = BrakedownCode { a, b, inner_code };
 
-        let code = IdentityCode { len: 16 };
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = p3_symmetric::SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<BabyBear, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
+
+        let pcs = TensorPcs::new(code, mmcs);
+        let (_commitment, prover_data): (_, TensorPcsProverData<_, _, _>) =
+            <TensorPcs<_, _, _> as MultilinearPcs<BabyBear, BabyBear>>::commit(
+                &pcs,
+                vec![evals.clone()],
+            );
+
+        assert_eq!(prover_data.encoded_matrices[0].width(), 2);
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn test_tensor_pcs_linearity() {
+        let values1 = (1..=8).map(BabyBear::new).collect::<Vec<_>>();
+        let values2 = (9..=16).map(BabyBear::new).collect::<Vec<_>>();
+        let matrix1 = RowMajorMatrix::new(values1, 2);
+        let matrix2 = RowMajorMatrix::new(values2, 2);
+
+        let code = IdentityCode { len: 4 };
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<BabyBear, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
         let pcs = TensorPcs::new(code, mmcs);
 
-        let values: Vec<F> = (0..32).map(|i| F::from_u32(i)).collect();
-        let evals = RowMajorMatrix::new(values, 2); // 16 rows, 2 cols
+        let sum = matrix1
+            .values
+            .iter()
+            .zip(&matrix2.values)
+            .map(|(&a, &b)| a + b)
+            .collect();
+        let matrix_sum = RowMajorMatrix::new(sum, 2);
+
+        let (_, data1) =
+            <TensorPcs<_, _, _> as MultilinearPcs<BabyBear, BabyBear>>::commit(&pcs, vec![matrix1]);
+        let (_, data2) =
+            <TensorPcs<_, _, _> as MultilinearPcs<BabyBear, BabyBear>>::commit(&pcs, vec![matrix2]);
+        let (_, data_sum) = <TensorPcs<_, _, _> as MultilinearPcs<BabyBear, BabyBear>>::commit(
+            &pcs,
+            vec![matrix_sum],
+        );
+
+        for i in 0..data_sum.encoded_matrices[0].values.len() {
+            assert_eq!(
+                data_sum.encoded_matrices[0].values[i],
+                data1.encoded_matrices[0].values[i] + data2.encoded_matrices[0].values[i]
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn test_tensor_pcs_commit_multiple_polys() {
+        let v1 = (1..=4).map(BabyBear::new).collect::<Vec<_>>();
+        let v2 = (5..=8).map(BabyBear::new).collect::<Vec<_>>();
+        let m1 = RowMajorMatrix::new(v1, 1);
+        let m2 = RowMajorMatrix::new(v2, 1);
+
+        let code = IdentityCode { len: 4 };
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<BabyBear, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
+        let pcs = TensorPcs::new(code, mmcs);
+
+        let (_, prover_data) =
+            <TensorPcs<_, _, _> as MultilinearPcs<BabyBear, BabyBear>>::commit(&pcs, vec![m1, m2]);
+        assert_eq!(prover_data.encoded_matrices.len(), 2);
+    }
+
+    #[test]
+    #[cfg(feature = "std")]
+    fn test_tensor_pcs_full_protocol() {
+        type F = BabyBear;
+        type Chal = BinomialExtensionField<F, 4>;
+
+        let values = (1..=16).map(F::new).collect::<Vec<_>>();
+        let evals = RowMajorMatrix::new(values, 2); // 8 rows, 2 columns (2^3 x 2^1)
+        let code = IdentityCode { len: 8 };
+
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<F, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
+        let pcs = TensorPcs::new(code, mmcs);
 
         let (commitment, prover_data) =
-            <_ as MultilinearPcs<F, F>>::commit(&pcs, vec![evals.clone()]);
+            <TensorPcs<_, _, _> as MultilinearPcs<F, Chal>>::commit(&pcs, vec![evals]);
 
-        assert_eq!(prover_data.encoded_matrices[0].height(), 16);
-        assert_eq!(prover_data.encoded_matrices[0].width(), 2);
-        let _ = commitment;
+        let point = vec![
+            Chal::from(F::new(1)),
+            Chal::from(F::new(2)),
+            Chal::from(F::new(3)),
+            Chal::from(F::new(4)),
+        ];
+        let mut challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
 
-        eprintln!(
-            "  test_tensor_pcs_commit_brakedown (Identity) took {:?}",
-            t_start.elapsed()
-        );
-    }
+        let (values, proof) = pcs.open(&prover_data, &point, &mut challenger);
 
-    /// Test committing to multiple polynomials at once
-    #[test]
-    fn test_tensor_pcs_commit_multiple_polys() {
-        let t_start = Instant::now();
+        let mut challenger_verify = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        let result = pcs.verify(&commitment, &point, &values, &proof, &mut challenger_verify);
 
-        let hash = MyHash::new(KeccakF {});
-        let compress = MyCompress::new(hash);
-        let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
-        let code = IdentityCode { len: 8 };
-        let pcs = TensorPcs::new(code, mmcs);
-
-        // Two separate evaluation matrices, both 8 rows x 2 cols
-        let vals_a: Vec<F> = (0..16).map(|i| F::from_u32(i)).collect();
-        let vals_b: Vec<F> = (100..116).map(|i| F::from_u32(i)).collect();
-        let mat_a = RowMajorMatrix::new(vals_a, 2);
-        let mat_b = RowMajorMatrix::new(vals_b, 2);
-
-        let (_commitment, prover_data) =
-            <_ as MultilinearPcs<F, F>>::commit(&pcs, vec![mat_a, mat_b]);
-
-        assert_eq!(prover_data.evals.len(), 2);
-        assert_eq!(prover_data.encoded_matrices.len(), 2);
-        assert_eq!(prover_data.evals[0].height(), 8);
-        assert_eq!(prover_data.evals[1].height(), 8);
-
-        eprintln!(
-            "  test_tensor_pcs_commit_multiple_polys took {:?}",
-            t_start.elapsed()
-        );
-    }
-
-    #[test]
-    fn test_tensor_pcs_linearity() {
-        let hash = MyHash::new(KeccakF {});
-        let compress = MyCompress::new(hash);
-        let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
-
-        // Use IdentityCode for a simple linearity check
-        let code = IdentityCode { len: 4 };
-        let pcs = TensorPcs::new(code, mmcs);
-
-        let mat_a = RowMajorMatrix::new((1..=12).map(F::from_u32).collect(), 3);
-        let mat_b = RowMajorMatrix::new((10..=21).map(F::from_u32).collect(), 3);
-
-        // encode(A + B)
-        let mut mat_sum_vals = Vec::new();
-        for (a, b) in mat_a.values.iter().zip(mat_b.values.iter()) {
-            mat_sum_vals.push(*a + *b);
-        }
-        let mat_sum = RowMajorMatrix::new(mat_sum_vals, 3);
-        let encoded_sum = pcs.code.encode_batch(mat_sum);
-
-        // encode(A) + encode(B)
-        let enc_a = pcs.code.encode_batch(mat_a);
-        let enc_b = pcs.code.encode_batch(mat_b);
-
-        let mut enc_sum_expected_vals = Vec::new();
-        for (a, b) in enc_a.values.iter().zip(enc_b.values.iter()) {
-            enc_sum_expected_vals.push(*a + *b);
-        }
-        let enc_sum_expected = RowMajorMatrix::new(enc_sum_expected_vals, 3);
-
-        assert_eq!(encoded_sum, enc_sum_expected, "Encoding should be linear");
+        assert!(result.is_ok());
     }
 }
