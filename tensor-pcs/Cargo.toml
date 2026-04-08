@@ -27,3 +27,5 @@ p3-baby-bear = { path = "../baby-bear" }
 p3-merkle-tree = { path = "../merkle-tree" }
 p3-keccak = { path = "../keccak" }
 p3-symmetric = { path = "../symmetric" }
+tracing-forest = { workspace = true, features = ["ansi", "smallvec"] }
+tracing-subscriber = { workspace = true, features = ["std", "env-filter"] }

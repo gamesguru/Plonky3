@@ -8,6 +8,7 @@ use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field};
 use p3_matrix::dense::RowMajorMatrix;
 use serde::{Deserialize, Serialize};
+use tracing::info;
 
 use crate::MultilinearPcs;
 
@@ -73,19 +74,26 @@ where
         evals: impl IntoIterator<Item = RowMajorMatrix<F>>,
     ) -> (Self::Commitment, Self::ProverData) {
         let evals: Vec<_> = evals.into_iter().collect();
+        info!(num_matrices = evals.len(), "TensorPcs::commit start");
 
         // 1. Encode the rows
+        let t0 = std::time::Instant::now();
         let mut encoded_matrices = Vec::with_capacity(evals.len());
         for e in &evals {
-            // Tensor PCS encodes rows
             let encoded = self.code.encode_batch(e.clone());
             encoded_matrices.push(encoded);
         }
+        let encode_dur = t0.elapsed();
+        info!(?encode_dur, "  encode phase done");
 
-        // 2. Commit to the columns
-        // Mmcs takes a vector of matrices and commits to their rows, so here we transpose if necessary,
-        // but let's assume `commit` accepts `encoded_matrices` directly.
+        // Commit to columns via MMCS
+        let t1 = std::time::Instant::now();
         let (commitment, mmcs_data) = self.mmcs.commit(encoded_matrices.clone());
+        let mmcs_dur = t1.elapsed();
+        info!(?mmcs_dur, "  MMCS commit phase done");
+
+        let total = t0.elapsed();
+        info!(?total, "TensorPcs::commit finished");
 
         (
             commitment,
@@ -121,16 +129,33 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use p3_baby_bear::BabyBear;
-    use p3_code::IdentityCode;
+    use p3_code::{CodeOrFamily, IdentityCode};
     use p3_field::PrimeCharacteristicRing;
     use p3_keccak::KeccakF;
     use p3_matrix::Matrix;
     use p3_matrix::dense::RowMajorMatrix;
     use p3_merkle_tree::MerkleTreeMmcs;
     use p3_symmetric::{CompressionFunctionFromHasher, PaddingFreeSponge, SerializingHasher};
+    use tracing_forest::ForestLayer;
+    use tracing_forest::util::LevelFilter;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    use tracing_subscriber::{EnvFilter, Registry};
 
     use super::*;
+
+    fn init_tracing() {
+        let env_filter = EnvFilter::builder()
+            .with_default_directive(LevelFilter::INFO.into())
+            .from_env_lossy();
+        let _ = Registry::default()
+            .with(env_filter)
+            .with(ForestLayer::default())
+            .try_init();
+    }
 
     type F = BabyBear;
     const VECTOR_LEN: usize = p3_keccak::VECTOR_LEN;
@@ -152,6 +177,9 @@ mod tests {
     /// - Call commit & assert prover data is valid
     #[test]
     fn test_tensor_pcs_commit_identity_code() {
+        init_tracing();
+        let t_start = Instant::now();
+
         // Setup hash + compression for Merkle tree
         let hash = MyHash::new(KeccakF {});
         let compress = MyCompress::new(hash);
@@ -165,7 +193,7 @@ mod tests {
         // Create a 4x3 evaluation matrix (4 rows, 3 polynomials)
         // This represents evaluations of 3 multilinear polys over {0,1}^2
         let values: Vec<F> = (1..=12).map(|i| F::from_u32(i)).collect();
-        let evals = RowMajorMatrix::new(values, 3);
+        let evals = RowMajorMatrix::new(values.clone(), 3);
 
         // Commit
         let (commitment, prover_data) =
@@ -181,12 +209,59 @@ mod tests {
         assert_eq!(prover_data.encoded_matrices[0], evals);
 
         // Commitment should be non-trivial (a Merkle root hash)
-        let _ = commitment; // Just ensure it exists and didn't panic
+        let commitment_1 = commitment;
+
+        // Determinism: same input -> same commitment
+        let (commitment_2, _) = <_ as MultilinearPcs<F, F>>::commit(&pcs, vec![evals.clone()]);
+        assert_eq!(commitment_1, commitment_2);
+
+        // Binding: different input -> different commitment
+        let mut different_values = values;
+        different_values[0] += F::ONE;
+        let different_evals = RowMajorMatrix::new(different_values, 3);
+        let (commitment_3, _) = <_ as MultilinearPcs<F, F>>::commit(&pcs, vec![different_evals]);
+        assert_ne!(commitment_1, commitment_3);
+
+        eprintln!(
+            "  test_tensor_pcs_commit_identity_code took {:?}",
+            t_start.elapsed()
+        );
+    }
+
+    #[test]
+    fn test_tensor_pcs_commit_brakedown() {
+        init_tracing();
+        let t_start = Instant::now();
+
+        let hash = MyHash::new(KeccakF {});
+        let compress = MyCompress::new(hash);
+        let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
+
+        let code = IdentityCode { len: 16 };
+        let pcs = TensorPcs::new(code, mmcs);
+
+        let values: Vec<F> = (0..32).map(|i| F::from_u32(i)).collect();
+        let evals = RowMajorMatrix::new(values, 2); // 16 rows, 2 cols
+
+        let (commitment, prover_data) =
+            <_ as MultilinearPcs<F, F>>::commit(&pcs, vec![evals.clone()]);
+
+        assert_eq!(prover_data.encoded_matrices[0].height(), 16);
+        assert_eq!(prover_data.encoded_matrices[0].width(), 2);
+        let _ = commitment;
+
+        eprintln!(
+            "  test_tensor_pcs_commit_brakedown (Identity) took {:?}",
+            t_start.elapsed()
+        );
     }
 
     /// Test committing to multiple polynomials at once
     #[test]
     fn test_tensor_pcs_commit_multiple_polys() {
+        init_tracing();
+        let t_start = Instant::now();
+
         let hash = MyHash::new(KeccakF {});
         let compress = MyCompress::new(hash);
         let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
@@ -206,5 +281,109 @@ mod tests {
         assert_eq!(prover_data.encoded_matrices.len(), 2);
         assert_eq!(prover_data.evals[0].height(), 8);
         assert_eq!(prover_data.evals[1].height(), 8);
+
+        eprintln!(
+            "  test_tensor_pcs_commit_multiple_polys took {:?}",
+            t_start.elapsed()
+        );
+    }
+
+    #[test]
+    fn test_tensor_pcs_linearity() {
+        init_tracing();
+        let hash = MyHash::new(KeccakF {});
+        let compress = MyCompress::new(hash);
+        let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
+
+        // Use IdentityCode for a simple linearity check
+        let code = IdentityCode { len: 4 };
+        let pcs = TensorPcs::new(code, mmcs);
+
+        let mat_a = RowMajorMatrix::new((1..=12).map(F::from_u32).collect(), 3);
+        let mat_b = RowMajorMatrix::new((10..=21).map(F::from_u32).collect(), 3);
+
+        // encode(A + B)
+        let mut mat_sum_vals = Vec::new();
+        for (a, b) in mat_a.values.iter().zip(mat_b.values.iter()) {
+            mat_sum_vals.push(*a + *b);
+        }
+        let mat_sum = RowMajorMatrix::new(mat_sum_vals, 3);
+        let encoded_sum = pcs.code.encode_batch(mat_sum);
+
+        // encode(A) + encode(B)
+        let enc_a = pcs.code.encode_batch(mat_a);
+        let enc_b = pcs.code.encode_batch(mat_b);
+
+        let mut enc_sum_expected_vals = Vec::new();
+        for (a, b) in enc_a.values.iter().zip(enc_b.values.iter()) {
+            enc_sum_expected_vals.push(*a + *b);
+        }
+        let enc_sum_expected = RowMajorMatrix::new(enc_sum_expected_vals, 3);
+
+        assert_eq!(encoded_sum, enc_sum_expected, "Encoding should be linear");
+    }
+
+    #[test]
+    fn test_tensor_pcs_linearity_scaling() {
+        init_tracing();
+
+        let hash = MyHash::new(KeccakF {});
+        let compress = MyCompress::new(hash);
+        let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
+
+        for log_n in 1..=14 {
+            let n = 1 << log_n;
+            // Use IdentityCode for scaling check
+            let code = IdentityCode { len: n };
+            let pcs = TensorPcs::new(code, mmcs.clone());
+
+            // Generate two matrices of height n
+            let mat_a = RowMajorMatrix::new((0..n * 2).map(|i| F::from_u32(i as u32)).collect(), 2);
+            let mat_b = RowMajorMatrix::new(
+                (0..n * 2).map(|i| F::from_u32(i as u32 + 1000)).collect(),
+                2,
+            );
+
+            let t0 = Instant::now();
+
+            // encode(A + B)
+            let mat_sum = RowMajorMatrix::new(
+                mat_a
+                    .values
+                    .iter()
+                    .zip(mat_b.values.iter())
+                    .map(|(a, b)| *a + *b)
+                    .collect(),
+                2,
+            );
+            let encoded_sum = pcs.code.encode_batch(mat_sum);
+
+            // encode(A) + encode(B)
+            let enc_a = pcs.code.encode_batch(mat_a);
+            let enc_b = pcs.code.encode_batch(mat_b);
+
+            let enc_sum_expected = RowMajorMatrix::new(
+                enc_a
+                    .values
+                    .iter()
+                    .zip(enc_b.values.iter())
+                    .map(|(a, b)| *a + *b)
+                    .collect(),
+                2,
+            );
+
+            let dur = t0.elapsed();
+            assert_eq!(
+                encoded_sum, enc_sum_expected,
+                "Encoding should be linear for log_n = {}",
+                log_n
+            );
+
+            let per_row = dur / n as u32;
+            eprintln!(
+                "  log_n = {:2} (n = {:5}) linearity check took {:?} ({:?} per row)",
+                log_n, n, dur, per_row
+            );
+        }
     }
 }
