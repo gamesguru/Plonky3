@@ -39,6 +39,11 @@ members = [
     "uni-stark",
     "util",
     "whir",
+    "code",
+    "brakedown",
+    "reed-solomon",
+    "tensor-pcs",
+    "lde",
 ]
 
 [workspace.lints]
@@ -127,6 +132,11 @@ p3-symmetric = { path = "symmetric", version = "0.5.1" }
 p3-uni-stark = { path = "uni-stark", version = "0.5.1" }
 p3-util = { path = "util", version = "0.5.1" }
 p3-whir = { path = "whir", version = "0.5.1" }
+p3-code = { path = "code", version = "0.5.1" }
+p3-brakedown = { path = "brakedown", version = "0.5.1" }
+p3-reed-solomon = { path = "reed-solomon", version = "0.5.1" }
+p3-tensor-pcs = { path = "tensor-pcs", version = "0.5.1" }
+p3-lde = { path = "lde", version = "0.5.1" }
 
 [workspace.package]
 # General description field used for the sub-crates that are currently missing a description.

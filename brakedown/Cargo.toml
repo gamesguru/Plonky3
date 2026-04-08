@@ -1,0 +1,28 @@
+[package]
+name = "p3-brakedown"
+description = "Brakedown error-correcting codes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+itertools.workspace = true
+p3-code = { path = "../code" }
+p3-field.workspace = true
+p3-lde = { path = "../lde" }
+p3-matrix.workspace = true
+p3-maybe-rayon.workspace = true
+p3-reed-solomon = { path = "../reed-solomon" }
+p3-util.workspace = true
+rand.workspace = true
+rand_chacha = "0.10"
+
+[dev-dependencies]
+p3-mersenne-31 = { path = "../mersenne-31" }
+
+[features]
+parallel = ["p3-maybe-rayon/parallel"]
