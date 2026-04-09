@@ -52,19 +52,13 @@ where
 
         // Perform dense matrix multiplication: Parity = G * Messages
         for r in 0..parity_height {
-            // Unpack row r of G
-            // We use iterators if available, but RowMajorMatrix lets us just use `.values`
-            // Wait, we can't assume In is Dense.
-            // Let's manually perform the inner product
-            for c in 0..out_width {
-                let mut sum = F::ZERO;
-                for i in 0..self.message_len {
-                    // This could be optimized, but for base cases it's extremely small
-                    let g_val = self.generator.values[r * self.message_len + i];
+            for i in 0..self.message_len {
+                let g_val = self.generator.values[r * self.message_len + i];
+                // Now iterate across the columns contiguously in memory
+                for c in 0..out_width {
                     let msg_val = messages.get(i, c).unwrap_or_default();
-                    sum += g_val * msg_val;
+                    parity_values[r * out_width + c] += g_val * msg_val;
                 }
-                parity_values[r * out_width + c] = sum;
             }
         }
 
