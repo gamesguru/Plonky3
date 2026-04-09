@@ -200,6 +200,7 @@ where
         while row_indices.len() < self.num_queries {
             let idx = challenger.sample_bits(bits);
             if idx < codeword_len {
+                // TODO: Optimize and enhance with sampling without replacement (`!row_indices.contains(&idx)`) to maximize structural security bits per query
                 row_indices.push(idx);
             }
         }
@@ -255,6 +256,7 @@ where
         while row_indices.len() < self.num_queries {
             let idx = challenger.sample_bits(bits);
             if idx < codeword_len {
+                // TODO: Sync iteration loop with sampling without replacement logic from the prover if updated
                 row_indices.push(idx);
             }
         }
@@ -314,6 +316,7 @@ where
             // Reconstruct the message as a RowMajorMatrix over the base field
             let mut flat_coeffs = Vec::with_capacity(height * Chal::DIMENSION);
             for val in &v_message {
+                // TODO: Depending on pinned Plonky3 version, this may be optimized or renamed to `as_base_slice()`
                 flat_coeffs.extend_from_slice(val.as_basis_coefficients_slice());
             }
             let m = RowMajorMatrix::new(flat_coeffs, Chal::DIMENSION);
