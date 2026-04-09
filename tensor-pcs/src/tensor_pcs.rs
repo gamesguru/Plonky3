@@ -71,6 +71,7 @@ pub enum TensorPcsError<ME> {
     MmcsError(ME),
     EvaluationMismatch,
     ConsistencyMismatch,
+    InvalidProof(&'static str),
 }
 
 impl<ME: core::fmt::Display> core::fmt::Display for TensorPcsError<ME> {
@@ -79,6 +80,7 @@ impl<ME: core::fmt::Display> core::fmt::Display for TensorPcsError<ME> {
             Self::MmcsError(e) => write!(f, "MMCS error: {}", e),
             Self::EvaluationMismatch => write!(f, "Evaluation mismatch"),
             Self::ConsistencyMismatch => write!(f, "Consistency mismatch"),
+            Self::InvalidProof(msg) => write!(f, "Invalid proof: {}", msg),
         }
     }
 }
@@ -258,11 +260,26 @@ where
                 .map_err(TensorPcsError::MmcsError)?;
         }
 
+        // Verify proof structure dimensions to prevent panics
+        if proof.folded_evals.len() != values.len() {
+            return Err(TensorPcsError::InvalidProof("folded_evals length mismatch"));
+        }
+        if proof.opened_columns.len() != column_indices.len() {
+            return Err(TensorPcsError::InvalidProof(
+                "opened_columns length mismatch",
+            ));
+        }
+
         // Compute evaluation points (column coefficients for folding)
         let col_coeffs_poly = Poly::new_from_point(z_col, Chal::ONE);
         let col_coeffs = col_coeffs_poly.as_slice();
 
         for (poly_idx, v) in proof.folded_evals.iter().enumerate() {
+            if v.len() != codeword_len {
+                return Err(TensorPcsError::InvalidProof(
+                    "folded encoded column length mismatch",
+                ));
+            }
             // Truncate to the message part for multilinear evaluation
             let v_message = v[..height].to_vec();
             let e = Poly::new(v_message).eval_ext(&Point::new(z_row.to_vec()));
@@ -273,7 +290,17 @@ where
             // Linear constraint check: sum beta_j(z_col) * M_{idx, j} == v[idx]
             // where idx is the sampled row of the committed matrix.
             for (query_idx, &idx) in column_indices.iter().enumerate() {
-                let opened_row = &proof.opened_columns[query_idx][poly_idx];
+                let opened_matrix_evals = &proof.opened_columns[query_idx];
+                if opened_matrix_evals.len() != values.len() {
+                    return Err(TensorPcsError::InvalidProof(
+                        "opened evaluations per query mismatch",
+                    ));
+                }
+
+                let opened_row = &opened_matrix_evals[poly_idx];
+                if opened_row.len() != width {
+                    return Err(TensorPcsError::InvalidProof("opened row width mismatch"));
+                }
 
                 let mut rhs = Chal::ZERO;
                 for (j, &val) in opened_row.iter().enumerate() {
