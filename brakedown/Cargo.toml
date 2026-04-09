@@ -22,7 +22,9 @@ rand = { workspace = true, features = ["alloc"] }
 rand_chacha = "0.10"
 
 [dev-dependencies]
+criterion.workspace = true
 p3-mersenne-31 = { path = "../mersenne-31" }
+rand = { workspace = true, features = ["std"] }
 
 [features]
 parallel = ["p3-maybe-rayon/parallel"]

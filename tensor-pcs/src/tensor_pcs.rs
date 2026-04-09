@@ -167,7 +167,9 @@ where
             }
 
             // Evaluation e = v(z_row)
-            let e = Poly::new(v.clone()).eval_ext(&Point::new(z_row.to_vec()));
+            // Truncate to the message part for multilinear evaluation
+            let v_message = v[..height].to_vec();
+            let e = Poly::new(v_message).eval_ext(&Point::new(z_row.to_vec()));
             folded_evals.push(vec![e]);
             folded_vectors.push(v);
         }
@@ -257,8 +259,9 @@ where
         let col_coeffs = col_coeffs_poly.as_slice();
 
         for (poly_idx, v) in proof.folded_evals.iter().enumerate() {
-            // v(z_row) == evaluation
-            let e = Poly::new(v.clone()).eval_ext(&Point::new(z_row.to_vec()));
+            // Truncate to the message part for multilinear evaluation
+            let v_message = v[..height].to_vec();
+            let e = Poly::new(v_message).eval_ext(&Point::new(z_row.to_vec()));
             if e != values[poly_idx][0] {
                 return Err(TensorPcsError::EvaluationMismatch);
             }
