@@ -170,12 +170,13 @@ where
                 }
             }
 
-            // Evaluation e = v(z_row)
-            // Truncate to the message part for multilinear evaluation
+            // This really shouldn't happen here
             assert!(
                 v.len() >= height,
                 "Encoded column shorter than message length"
             );
+            // Evaluation e = v(z_row)
+            // Truncate to the message part for multilinear evaluation
             let v_message = v[..height].to_vec();
             let e = Poly::new(v_message).eval_ext(&Point::new(z_row.to_vec()));
             folded_evals.push(vec![e]);
@@ -235,7 +236,18 @@ where
     ) -> Result<(), Self::Error> {
         let n = point.len();
         let height = self.code.message_len();
+        // Validate height
+        if !height.is_power_of_two() {
+            return Err(TensorPcsError::InvalidProof(
+                "message lengths must be powers of two",
+            ));
+        }
         let log_r = height.ilog2() as usize;
+        if n < log_r {
+            return Err(TensorPcsError::InvalidProof(
+                "point length is too small for message length",
+            ));
+        }
         let log_c = n - log_r;
         let (z_row, z_col) = point.split_at(log_r);
 
@@ -261,6 +273,19 @@ where
             }
         }
 
+        // Verify proof structure, avoid panics & potential malicious out-of-bounds access
+        if proof.folded_vectors.len() != values.len() {
+            return Err(TensorPcsError::InvalidProof(
+                "folded_vectors length mismatch",
+            ));
+        }
+        if proof.opened_rows.len() != row_indices.len() {
+            return Err(TensorPcsError::InvalidProof("opened_rows length mismatch"));
+        }
+        if proof.mmcs_proofs.len() != row_indices.len() {
+            return Err(TensorPcsError::InvalidProof("mmcs_proofs length mismatch"));
+        }
+
         // Verify MMCS openings. Dimensions must be exact: width W = 2^log_c.
         let width = 1 << log_c;
         let dims = vec![
@@ -281,16 +306,6 @@ where
                 .map_err(TensorPcsError::MmcsError)?;
         }
 
-        // Verify proof structure/dimension to avoid panic
-        if proof.folded_vectors.len() != values.len() {
-            return Err(TensorPcsError::InvalidProof(
-                "folded_vectors length mismatch",
-            ));
-        }
-        if proof.opened_rows.len() != row_indices.len() {
-            return Err(TensorPcsError::InvalidProof("opened_rows length mismatch"));
-        }
-
         // Compute evaluation points (column coefficients for folding)
         let col_coeffs_poly = Poly::new_from_point(z_col, Chal::ONE);
         let col_coeffs = col_coeffs_poly.as_slice();
@@ -302,12 +317,18 @@ where
                 ));
             }
 
+            // Safely return error to verifier
+            if v.len() < height {
+                return Err(TensorPcsError::InvalidProof(
+                    "encoded column shorter than message length",
+                ));
+            }
+            if values[poly_idx].is_empty() {
+                return Err(TensorPcsError::InvalidProof("missing evaluation value"));
+            }
+
             // Evaluation e = v(z_row)
             // Truncate to message part for multilinear evaluation
-            assert!(
-                v.len() >= height,
-                "Encoded column shorter than message length"
-            );
             let v_message = v[..height].to_vec();
             let e = Poly::new(v_message.clone()).eval_ext(&Point::new(z_row.to_vec()));
             if e != values[poly_idx][0] {
