@@ -1,0 +1,15 @@
+[package]
+name = "p3-lde"
+description = "Low-degree extensions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+p3-field.workspace = true
+p3-matrix.workspace = true
+p3-util.workspace = true
