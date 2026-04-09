@@ -152,7 +152,7 @@ where
         // Variables [0..log_r] are MSBs (rows), [log_r..n] are LSBs (columns)
         let (z_row, z_col) = point.split_at(log_r);
 
-        // 1. Fold columns (polynomials) of each encoded matrix using z_col
+        // Fold columns (polynomials) of each encoded matrix using z_col
         let col_coeffs_poly = Poly::new_from_point(z_col, Chal::ONE);
         let col_coeffs = col_coeffs_poly.as_slice();
         let mut folded_vectors = Vec::with_capacity(prover_data.encoded_matrices.len());
@@ -180,7 +180,7 @@ where
             folded_vectors.push(v);
         }
 
-        // 2. Sample column indices (indices of the codeword dimension)
+        // Sample column indices (indices of the codeword dimension)
         for evals in &folded_evals {
             for &e in evals {
                 challenger.observe_algebra_element(e);
@@ -193,7 +193,7 @@ where
             .map(|_| challenger.sample_bits(codeword_len.ilog2() as usize))
             .collect();
 
-        // 3. Open sampled rows of the encoded matrices
+        // Open sampled rows of the encoded matrices
         let mut opened_columns = Vec::with_capacity(num_queries);
         let mut proofs = Vec::with_capacity(num_queries);
         for &idx in &column_indices {
@@ -280,7 +280,13 @@ where
                     "folded encoded column length mismatch",
                 ));
             }
+
+            // Evaluation e = v(z_row)
             // Truncate to the message part for multilinear evaluation
+            assert!(
+                v.len() >= height,
+                "Encoded column shorter than message length"
+            );
             let v_message = v[..height].to_vec();
             let e = Poly::new(v_message).eval_ext(&Point::new(z_row.to_vec()));
             if e != values[poly_idx][0] {
