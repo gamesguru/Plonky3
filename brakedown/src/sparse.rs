@@ -59,6 +59,49 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
             row_indices,
         }
     }
+
+    pub fn rand_fixed_col_weight<R: RngExt>(
+        rng: &mut R,
+        rows: usize,
+        cols: usize,
+        col_weight: usize,
+    ) -> Self
+    where
+        T: Default,
+        StandardUniform: Distribution<T>,
+    {
+        let mut entries = Vec::with_capacity(cols * col_weight);
+        for c in 0..cols {
+            let indices = rand::seq::index::sample(rng, rows, col_weight);
+            for r in indices {
+                entries.push((r, c, rng.random::<T>()));
+            }
+        }
+
+        entries.sort_unstable_by_key(|&(r, _, _)| r);
+
+        let mut nonzero_values = Vec::with_capacity(cols * col_weight);
+        let mut row_indices = vec![0; rows + 1];
+
+        let mut current_row = 0;
+        for (r, c, v) in entries {
+            while current_row < r {
+                current_row += 1;
+                row_indices[current_row] = nonzero_values.len();
+            }
+            nonzero_values.push((c, v));
+        }
+        while current_row < rows {
+            current_row += 1;
+            row_indices[current_row] = nonzero_values.len();
+        }
+
+        Self {
+            width: cols,
+            nonzero_values,
+            row_indices,
+        }
+    }
 }
 
 impl<T: Clone + Default + Send + Sync> Matrix<T> for CsrMatrix<T> {

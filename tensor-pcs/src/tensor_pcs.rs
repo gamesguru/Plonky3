@@ -25,6 +25,7 @@ where
 {
     pub code: C,
     pub mmcs: M,
+    pub num_queries: usize,
     _marker: PhantomData<F>,
 }
 
@@ -34,10 +35,11 @@ where
     C: LinearCode<F, RowMajorMatrix<F>>,
     M: Mmcs<F>,
 {
-    pub fn new(code: C, mmcs: M) -> Self {
+    pub fn new(code: C, mmcs: M, num_queries: usize) -> Self {
         Self {
             code,
             mmcs,
+            num_queries,
             _marker: PhantomData,
         }
     }
@@ -63,7 +65,7 @@ where
 {
     pub folded_evals: Vec<Vec<Chal>>,
     pub mmcs_proofs: Vec<M::Proof>,
-    pub opened_columns: Vec<Vec<Vec<F>>>,
+    pub opened_rows: Vec<Vec<Vec<F>>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -180,26 +182,35 @@ where
             folded_vectors.push(v);
         }
 
-        // Sample column indices (indices of the codeword dimension)
+        // Observe folded vectors in Fiat-Shamir transcript
+        for v in &folded_vectors {
+            challenger.observe_algebra_slice(v);
+        }
+
+        // Sample row indices (indices of the codeword dimension)
         for evals in &folded_evals {
             for &e in evals {
                 challenger.observe_algebra_element(e);
             }
         }
 
-        let num_queries = 40;
         let codeword_len = self.code.codeword_len();
-        let column_indices: Vec<usize> = (0..num_queries)
-            .map(|_| challenger.sample_bits(codeword_len.ilog2() as usize))
-            .collect();
+        let bits = codeword_len.next_power_of_two().ilog2() as usize;
+        let mut row_indices = Vec::with_capacity(self.num_queries);
+        while row_indices.len() < self.num_queries {
+            let idx = challenger.sample_bits(bits);
+            if idx < codeword_len {
+                row_indices.push(idx);
+            }
+        }
 
         // Open sampled rows of the encoded matrices
-        let mut opened_columns = Vec::with_capacity(num_queries);
-        let mut proofs = Vec::with_capacity(num_queries);
-        for &idx in &column_indices {
+        let mut opened_rows = Vec::with_capacity(self.num_queries);
+        let mut proofs = Vec::with_capacity(self.num_queries);
+        for &idx in &row_indices {
             let opening = self.mmcs.open_batch(idx, &prover_data.mmcs_data);
             // opened_values is Vec<Vec<F>> where inner Vec is the row of width W
-            opened_columns.push(opening.opened_values);
+            opened_rows.push(opening.opened_values);
             proofs.push(opening.opening_proof);
         }
 
@@ -208,7 +219,7 @@ where
             TensorPcsProof {
                 folded_evals: folded_vectors,
                 mmcs_proofs: proofs,
-                opened_columns,
+                opened_rows,
             },
         )
     }
@@ -227,17 +238,26 @@ where
         let log_c = n - log_r;
         let (z_row, z_col) = point.split_at(log_r);
 
+        // Observe folded vectors in Fiat-Shamir transcript (must match prover)
+        for v in &proof.folded_evals {
+            challenger.observe_algebra_slice(v);
+        }
+
         for v in values {
             for &e in v {
                 challenger.observe_algebra_element(e);
             }
         }
 
-        let num_queries = 40;
         let codeword_len = self.code.codeword_len();
-        let column_indices: Vec<usize> = (0..num_queries)
-            .map(|_| challenger.sample_bits(codeword_len.ilog2() as usize))
-            .collect();
+        let bits = codeword_len.next_power_of_two().ilog2() as usize;
+        let mut row_indices = Vec::with_capacity(self.num_queries);
+        while row_indices.len() < self.num_queries {
+            let idx = challenger.sample_bits(bits);
+            if idx < codeword_len {
+                row_indices.push(idx);
+            }
+        }
 
         // Verify MMCS openings
         // Wait! dimensions should be exact. Width W = 2^log_c.
@@ -250,8 +270,8 @@ where
             values.len()
         ];
 
-        for (query_idx, &idx) in column_indices.iter().enumerate() {
-            let opened_values = &proof.opened_columns[query_idx];
+        for (query_idx, &idx) in row_indices.iter().enumerate() {
+            let opened_values = &proof.opened_rows[query_idx];
             let opening_proof = &proof.mmcs_proofs[query_idx];
             let opening_ref = p3_commit::BatchOpeningRef::new(opened_values, opening_proof);
 
@@ -264,10 +284,8 @@ where
         if proof.folded_evals.len() != values.len() {
             return Err(TensorPcsError::InvalidProof("folded_evals length mismatch"));
         }
-        if proof.opened_columns.len() != column_indices.len() {
-            return Err(TensorPcsError::InvalidProof(
-                "opened_columns length mismatch",
-            ));
+        if proof.opened_rows.len() != row_indices.len() {
+            return Err(TensorPcsError::InvalidProof("opened_rows length mismatch"));
         }
 
         // Compute evaluation points (column coefficients for folding)
@@ -288,15 +306,37 @@ where
                 "Encoded column shorter than message length"
             );
             let v_message = v[..height].to_vec();
-            let e = Poly::new(v_message).eval_ext(&Point::new(z_row.to_vec()));
+            let e = Poly::new(v_message.clone()).eval_ext(&Point::new(z_row.to_vec()));
             if e != values[poly_idx][0] {
                 return Err(TensorPcsError::EvaluationMismatch);
             }
 
+            // Reconstruct the message as a RowMajorMatrix over the base field
+            let mut flat_coeffs = Vec::with_capacity(height * Chal::DIMENSION);
+            for val in &v_message {
+                flat_coeffs.extend_from_slice(val.as_basis_coefficients_slice());
+            }
+            let m = RowMajorMatrix::new(flat_coeffs, Chal::DIMENSION);
+            let encoded_m = self.code.encode_batch(m);
+
+            // Reconstruct the encoded extension field elements
+            let mut reencoded_v = Vec::with_capacity(codeword_len);
+            for row in encoded_m.rows() {
+                let row_vec: Vec<F> = row.into_iter().collect();
+                reencoded_v.push(Chal::from_basis_coefficients_slice(&row_vec).unwrap());
+            }
+
+            // The folded vector from the prover must be a valid codeword
+            if reencoded_v != *v {
+                return Err(TensorPcsError::InvalidProof(
+                    "folded vector is not a valid codeword",
+                ));
+            }
+
             // Linear constraint check: sum beta_j(z_col) * M_{idx, j} == v[idx]
             // where idx is the sampled row of the committed matrix.
-            for (query_idx, &idx) in column_indices.iter().enumerate() {
-                let opened_matrix_evals = &proof.opened_columns[query_idx];
+            for (query_idx, &idx) in row_indices.iter().enumerate() {
+                let opened_matrix_evals = &proof.opened_rows[query_idx];
                 if opened_matrix_evals.len() != values.len() {
                     return Err(TensorPcsError::InvalidProof(
                         "opened evaluations per query mismatch",
@@ -370,7 +410,7 @@ mod tests {
         let compress = CompressionFunctionFromHasher::new(hash);
         let serial_hasher = SerializingHasher::new(hash);
         let mmcs = MerkleTreeMmcs::<BabyBear, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
-        let pcs = TensorPcs::new(code, mmcs);
+        let pcs = TensorPcs::new(code, mmcs, 40);
         let (commitment, prover_data) = <TensorPcs<_, _, _> as MultilinearPcs<
             BabyBear,
             BabyBear,
@@ -389,8 +429,8 @@ mod tests {
 
         // Manual BrakedownCode initialization matching the logic of brakedown! macro
         let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(0);
-        let a = CsrMatrix::<BabyBear>::rand_fixed_row_weight(&mut rng, 16, 16, 4);
-        let b = CsrMatrix::<BabyBear>::rand_fixed_row_weight(&mut rng, 16, 16, 4);
+        let a = CsrMatrix::<BabyBear>::rand_fixed_col_weight(&mut rng, 16, 16, 4);
+        let b = CsrMatrix::<BabyBear>::rand_fixed_col_weight(&mut rng, 16, 16, 4);
         let inner_code = alloc::boxed::Box::new(IdentityCode { len: 16 });
         let code = BrakedownCode { a, b, inner_code };
 
@@ -399,7 +439,7 @@ mod tests {
         let serial_hasher = p3_symmetric::SerializingHasher::new(hash);
         let mmcs = MerkleTreeMmcs::<BabyBear, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
 
-        let pcs = TensorPcs::new(code, mmcs);
+        let pcs = TensorPcs::new(code, mmcs, 40);
         let (_commitment, prover_data): (_, TensorPcsProverData<_, _, _>) =
             <TensorPcs<_, _, _> as MultilinearPcs<BabyBear, BabyBear>>::commit(
                 &pcs,
@@ -422,7 +462,7 @@ mod tests {
         let compress = CompressionFunctionFromHasher::new(hash);
         let serial_hasher = SerializingHasher::new(hash);
         let mmcs = MerkleTreeMmcs::<BabyBear, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
-        let pcs = TensorPcs::new(code, mmcs);
+        let pcs = TensorPcs::new(code, mmcs, 40);
 
         let sum = matrix1
             .values
@@ -462,7 +502,7 @@ mod tests {
         let compress = CompressionFunctionFromHasher::new(hash);
         let serial_hasher = SerializingHasher::new(hash);
         let mmcs = MerkleTreeMmcs::<BabyBear, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
-        let pcs = TensorPcs::new(code, mmcs);
+        let pcs = TensorPcs::new(code, mmcs, 40);
 
         let (_, prover_data) =
             <TensorPcs<_, _, _> as MultilinearPcs<BabyBear, BabyBear>>::commit(&pcs, vec![m1, m2]);
@@ -483,7 +523,7 @@ mod tests {
         let compress = CompressionFunctionFromHasher::new(hash);
         let serial_hasher = SerializingHasher::new(hash);
         let mmcs = MerkleTreeMmcs::<F, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
-        let pcs = TensorPcs::new(code, mmcs);
+        let pcs = TensorPcs::new(code, mmcs, 40);
 
         let (commitment, prover_data) =
             <TensorPcs<_, _, _> as MultilinearPcs<F, Chal>>::commit(&pcs, vec![evals]);

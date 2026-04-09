@@ -36,7 +36,7 @@ fn test_tensor_pcs_scaling_suite() {
         };
         for m in m_cases {
             let code = IdentityCode { len: n };
-            let pcs = TensorPcs::new(code, mmcs.clone());
+            let pcs = TensorPcs::new(code, mmcs.clone(), 40);
             let evals = (0..m)
                 .map(|_| RowMajorMatrix::new(vec![F::ZERO; n], 1))
                 .collect::<Vec<_>>();
@@ -129,7 +129,7 @@ fn test_tensor_pcs_scaling_suite() {
     for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
         let code = IdentityCode { len: n };
-        let pcs = TensorPcs::new(code, mmcs.clone());
+        let pcs = TensorPcs::new(code, mmcs.clone(), 40);
 
         let mat_a = RowMajorMatrix::new((0..n).map(|i| F::from_u32(i as u32)).collect(), 1);
         let mat_b = RowMajorMatrix::new((0..n).map(|i| F::from_u32(i as u32 + 1000)).collect(), 1);
