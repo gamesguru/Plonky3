@@ -137,7 +137,11 @@ mod tests {
 
     impl CodeFamily<F, In> for TestSystematicLinearCode {
         fn codeword_len(&self, len: usize) -> Option<usize> {
-            Some(len)
+            if len == self.len {
+                Some(self.len)
+            } else {
+                None
+            }
         }
 
         fn next_message_len(&self, len: usize) -> Option<usize> {

@@ -168,6 +168,10 @@ where
 
             // Evaluation e = v(z_row)
             // Truncate to the message part for multilinear evaluation
+            assert!(
+                v.len() >= height,
+                "Encoded column shorter than message length"
+            );
             let v_message = v[..height].to_vec();
             let e = Poly::new(v_message).eval_ext(&Point::new(z_row.to_vec()));
             folded_evals.push(vec![e]);
