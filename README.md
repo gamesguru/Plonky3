@@ -30,13 +30,14 @@ Generalized vector commitment schemes
 
 Polynomial commitment schemes
 - [x] FRI-based PCS
-- [x] tensor PCS
+- [ ] tensor PCS
 - [ ] univariate-to-multivariate adapter
 - [ ] multivariate-to-univariate adapter
 
 PIOPs
 - [x] univariate STARK
 - [ ] multivariate STARK
+  - [x] Sumcheck
 - [ ] PLONK
 
 Codes
