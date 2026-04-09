@@ -66,6 +66,23 @@ where
     pub opened_columns: Vec<Vec<Vec<F>>>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub enum TensorPcsError<ME> {
+    MmcsError(ME),
+    EvaluationMismatch,
+    ConsistencyMismatch,
+}
+
+impl<ME: core::fmt::Display> core::fmt::Display for TensorPcsError<ME> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::MmcsError(e) => write!(f, "MMCS error: {}", e),
+            Self::EvaluationMismatch => write!(f, "Evaluation mismatch"),
+            Self::ConsistencyMismatch => write!(f, "Consistency mismatch"),
+        }
+    }
+}
+
 impl<F, C, M, Chal> MultilinearPcs<F, Chal> for TensorPcs<F, C, M>
 where
     F: Field,
@@ -77,7 +94,7 @@ where
     type Commitment = M::Commitment;
     type ProverData = TensorPcsProverData<F, M, C::Out>;
     type Proof = TensorPcsProof<F, M, Chal>;
-    type Error = M::Error;
+    type Error = TensorPcsError<M::Error>;
 
     fn commit(
         &self,
@@ -231,7 +248,8 @@ where
             let opening_ref = p3_commit::BatchOpeningRef::new(opened_values, opening_proof);
 
             self.mmcs
-                .verify_batch(commitment, &dims, idx, opening_ref)?;
+                .verify_batch(commitment, &dims, idx, opening_ref)
+                .map_err(TensorPcsError::MmcsError)?;
         }
 
         // Consistency check
@@ -242,10 +260,11 @@ where
             // v(z_row) == evaluation
             let e = Poly::new(v.clone()).eval_ext(&Point::new(z_row.to_vec()));
             if e != values[poly_idx][0] {
-                panic!("Evaluation mismatch");
+                return Err(TensorPcsError::EvaluationMismatch);
             }
 
-            // Linear constraint check: fold(OpenedRow, z_col) == decode(v)[idx]
+            // Linear constraint check: fold(OpenedRow, z_col) == v[idx]
+            // This is checked for all sampled indices (including parity bits)
             for (query_idx, &idx) in column_indices.iter().enumerate() {
                 let opened_row = &proof.opened_columns[query_idx][poly_idx];
 
@@ -254,8 +273,8 @@ where
                     rhs += col_coeffs[j] * *val;
                 }
 
-                if idx < height && rhs != v[idx] {
-                    panic!("Consistency mismatch at index {}", idx);
+                if rhs != v[idx] {
+                    return Err(TensorPcsError::ConsistencyMismatch);
                 }
             }
         }
