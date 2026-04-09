@@ -37,6 +37,7 @@ Polynomial commitment schemes
 PIOPs
 - [x] univariate STARK
 - [ ] multivariate STARK
+  - [x] Sumcheck
 - [ ] PLONK
 
 Codes
