@@ -5,10 +5,12 @@
 extern crate alloc;
 
 pub mod brakedown_code;
+pub mod dense_code;
 pub mod macros;
 pub mod mul;
 pub mod sparse;
 pub mod standard_fast;
 
 pub use brakedown_code::*;
+pub use dense_code::*;
 pub use standard_fast::*;

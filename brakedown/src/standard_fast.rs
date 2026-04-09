@@ -9,7 +9,7 @@ use rand::distr::{Distribution, StandardUniform};
 use rand_chacha::ChaCha20Rng;
 
 use crate::BrakedownCode;
-use crate::macros::{brakedown, brakedown_to_rs};
+use crate::macros::{brakedown, brakedown_to_dense};
 use crate::sparse::CsrMatrix;
 
 #[allow(deprecated)] // TODO: Remove when UndefinedLDE is gone.
@@ -23,13 +23,13 @@ where
     let height_14 = brakedown!(16384, 1967, 8, 2810, 4211, 20,
         brakedown!(1967, 237, 9, 338, 505, 23,
             brakedown!(237, 29, 11, 41, 60, 15,
-                brakedown_to_rs!(29, 4, 0, 5, 7, 0))));
+                brakedown_to_dense!(29, 4, 0, 5, 7, 0))));
 
     #[rustfmt::skip]
     let height_16 = brakedown!(65536, 7865, 8, 11235, 16851, 19,
         brakedown!(7865, 944, 8, 1348, 2022, 21,
             brakedown!(944, 114, 9, 162, 242, 23,
-                brakedown_to_rs!(114, 14, 7, 20, 28, 11))));
+                brakedown_to_dense!(114, 14, 7, 20, 28, 11))));
 
     SLCodeRegistry::new(vec![Box::new(height_14), Box::new(height_16)])
 }
