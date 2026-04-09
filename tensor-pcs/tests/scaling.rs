@@ -24,7 +24,7 @@ fn test_tensor_pcs_scaling_suite() {
 
     println!("\n=== Tensor PCS Scaling Suite (All Directions) ===");
 
-    // 1. Breadth Scaling (Varying Depth n and Number of Polys m)
+    // Breadth Scaling (Varying Depth n and Number of Polys m)
     println!("\n--- Breadth Scaling (varying log_n and m) ---");
     for log_n in [12, 14, 16] {
         let n = 1 << log_n;
@@ -45,17 +45,17 @@ fn test_tensor_pcs_scaling_suite() {
             let _ =
                 <TensorPcs<F, IdentityCode, MyMmcs> as MultilinearPcs<F, F>>::commit(&pcs, evals);
             let dur = t0.elapsed();
+            let label = format!("log_n = {:2}, m = {:3}", log_n, m);
+            let (d_val, d_unit) = split_dur(dur);
+            let (p_val, p_unit) = split_dur(dur / m as u32);
             println!(
-                "  log_n = {:2}, m = {:3} polynomials | Commit took {:15?} ({:11?} per poly)",
-                log_n,
-                m,
-                dur,
-                dur / m as u32
+                "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per poly)",
+                label, "Commit", d_val, d_unit, p_val, p_unit
             );
         }
     }
 
-    // 2. Transposition Scaling (Depth)
+    // Transposition Scaling (Depth)
     println!("\n--- Transposition Scaling (varying log_n) ---");
     for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
@@ -71,16 +71,16 @@ fn test_tensor_pcs_scaling_suite() {
             }
         }
         let dur = t0.elapsed();
+        let label = format!("log_n = {:2} (n = 2^{})", log_n, log_n);
+        let (d_val, d_unit) = split_dur(dur);
+        let (p_val, p_unit) = split_dur(dur / n as u32);
         println!(
-            "  log_n = {:2} (n = {:8}) | Transpose took {:10?} ({:6?} per element)",
-            log_n,
-            n,
-            dur,
-            dur / n as u32
+            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per element)",
+            label, "Transpose", d_val, d_unit, p_val, p_unit
         );
     }
 
-    // 3. Folding Round Simulation (Linearity in Opening)
+    // Folding Round Simulation (Linearity in Opening)
     println!("\n--- Folding Round Simulation (Sumcheck Step) ---");
     for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
@@ -93,16 +93,16 @@ fn test_tensor_pcs_scaling_suite() {
             _folded.push(vals[2 * i] + challenge * vals[2 * i + 1]);
         }
         let dur = t0.elapsed();
+        let label = format!("log_n = {:2} (n = 2^{})", log_n, log_n);
+        let (d_val, d_unit) = split_dur(dur);
+        let (p_val, p_unit) = split_dur(dur / n as u32);
         println!(
-            "  log_n = {:2} (n = {:8}) | Folding took {:12?} ({:6?} per input element)",
-            log_n,
-            n,
-            dur,
-            dur / n as u32
+            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per input)",
+            label, "Folding", d_val, d_unit, p_val, p_unit
         );
     }
 
-    // 4. Hadamard Product Scaling (Constraint Evaluation)
+    // Hadamard Product Scaling (Constraint Evaluation)
     println!("\n--- Hadamard Product Scaling (A * B) ---");
     for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
@@ -115,16 +115,16 @@ fn test_tensor_pcs_scaling_suite() {
             _res.push(vals_a[i] * vals_b[i]);
         }
         let dur = t0.elapsed();
+        let label = format!("log_n = {:2} (n = 2^{})", log_n, log_n);
+        let (d_val, d_unit) = split_dur(dur);
+        let (p_val, p_unit) = split_dur(dur / n as u32);
         println!(
-            "  log_n = {:2} (n = {:8}) | Hadamard took {:11?} ({:6?} per element)",
-            log_n,
-            n,
-            dur,
-            dur / n as u32
+            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per element)",
+            label, "Hadamard", d_val, d_unit, p_val, p_unit
         );
     }
 
-    // 5. Linearity Scaling (Depth)
+    // Linearity Scaling (Depth)
     println!("\n--- Linearity Scaling (Depth up to 24 bits) ---");
     for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
@@ -160,12 +160,25 @@ fn test_tensor_pcs_scaling_suite() {
 
         assert_eq!(encoded_sum, enc_sum_expected);
         let dur = t0.elapsed();
+        let label = format!("log_n = {:2} (n = 2^{})", log_n, log_n);
+        let (d_val, d_unit) = split_dur(dur);
+        let (p_val, p_unit) = split_dur(dur / n as u32);
         println!(
-            "  log_n = {:2} (n = {:8}) | Linearity took {:11?} ({:6?} per row)",
-            log_n,
-            n,
-            dur,
-            dur / n as u32
+            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per row)",
+            label, "Linearity", d_val, d_unit, p_val, p_unit
         );
+    }
+}
+
+fn split_dur(d: std::time::Duration) -> (f64, &'static str) {
+    let ns = d.as_nanos() as f64;
+    if ns < 1000.0 {
+        (ns, "ns")
+    } else if ns < 1_000_000.0 {
+        (ns / 1000.0, "µs")
+    } else if ns < 1_000_000_000.0 {
+        (ns / 1_000_000.0, "ms")
+    } else {
+        (ns / 1_000_000_000.0, "s")
     }
 }
