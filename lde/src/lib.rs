@@ -36,7 +36,7 @@ where
     fn lde_batch(&self, polys: RowMajorMatrix<Val>, added_bits: usize) -> RowMajorMatrix<Val>;
 }
 
-/// A specialization of `TwoAdicLde` to evaluate polynomials over the multiplicative a subgroup of domain,
+/// A specialization of `TwoAdicLde` to evaluate polynomials over a multiplicative subgroup of domain,
 /// in other words, a trivial coset thereof.
 pub trait TwoAdicSubgroupLde<Val>: TwoAdicLde<Val>
 where

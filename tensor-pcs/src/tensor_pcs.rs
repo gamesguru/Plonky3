@@ -63,7 +63,7 @@ where
     M: Mmcs<F>,
     Chal: ExtensionField<F>,
 {
-    pub folded_evals: Vec<Vec<Chal>>,
+    pub folded_vectors: Vec<Vec<Chal>>,
     pub mmcs_proofs: Vec<M::Proof>,
     pub opened_rows: Vec<Vec<Vec<F>>>,
 }
@@ -218,7 +218,7 @@ where
         (
             folded_evals,
             TensorPcsProof {
-                folded_evals: folded_vectors,
+                folded_vectors,
                 mmcs_proofs: proofs,
                 opened_rows,
             },
@@ -240,7 +240,7 @@ where
         let (z_row, z_col) = point.split_at(log_r);
 
         // Observe folded vectors in Fiat-Shamir transcript (must match prover)
-        for v in &proof.folded_evals {
+        for v in &proof.folded_vectors {
             challenger.observe_algebra_slice(v);
         }
 
@@ -282,8 +282,10 @@ where
         }
 
         // Verify proof structure/dimension to avoid panic
-        if proof.folded_evals.len() != values.len() {
-            return Err(TensorPcsError::InvalidProof("folded_evals length mismatch"));
+        if proof.folded_vectors.len() != values.len() {
+            return Err(TensorPcsError::InvalidProof(
+                "folded_vectors length mismatch",
+            ));
         }
         if proof.opened_rows.len() != row_indices.len() {
             return Err(TensorPcsError::InvalidProof("opened_rows length mismatch"));
@@ -293,7 +295,7 @@ where
         let col_coeffs_poly = Poly::new_from_point(z_col, Chal::ONE);
         let col_coeffs = col_coeffs_poly.as_slice();
 
-        for (poly_idx, v) in proof.folded_evals.iter().enumerate() {
+        for (poly_idx, v) in proof.folded_vectors.iter().enumerate() {
             if v.len() != codeword_len {
                 return Err(TensorPcsError::InvalidProof(
                     "folded encoded column length mismatch",
