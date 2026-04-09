@@ -150,26 +150,26 @@ where
         // Variables [0..log_r] are MSBs (rows), [log_r..n] are LSBs (columns)
         let (z_row, z_col) = point.split_at(log_r);
 
-        // 1. Fold columns (polynomials) of each matrix using z_col
-        let col_coeffs_poly = Poly::new_from_point(z_col, Chal::ONE);
-        let col_coeffs = col_coeffs_poly.as_slice();
-        let mut folded_vectors = Vec::with_capacity(prover_data.evals.len());
-        let mut folded_evals = Vec::with_capacity(prover_data.evals.len());
+        // Fold rows of each encoded matrix using z_row
+        let row_coeffs_poly = Poly::new_from_point(z_row, Chal::ONE);
+        let row_coeffs = row_coeffs_poly.as_slice();
+        let mut folded_vectors = Vec::with_capacity(prover_data.encoded_matrices.len());
+        let mut folded_evals = Vec::with_capacity(prover_data.encoded_matrices.len());
 
-        for m in &prover_data.evals {
-            assert_eq!(m.width(), width, "Matrix width must be 2^log_c");
-            // v = sum alpha_j * Col_j
-            let mut v = vec![Chal::ZERO; m.height()];
+        for m in &prover_data.encoded_matrices {
+            // v = sum beta_i(z_row) * Row_i
+            let mut v = vec![Chal::ZERO; m.width()];
             for (i, row) in m.rows().enumerate() {
+                let alpha = row_coeffs[i];
                 for (j, val) in row.into_iter().enumerate() {
-                    v[i] += col_coeffs[j] * val;
+                    v[j] += alpha * val;
                 }
             }
 
-            // Evaluation e = v(z_row)
+            // Evaluation e = v(z_col)
             // Truncate to the message part for multilinear evaluation
-            let v_message = v[..height].to_vec();
-            let e = Poly::new(v_message).eval_ext(&Point::new(z_row.to_vec()));
+            let v_message = v[..width].to_vec();
+            let e = Poly::new(v_message).eval_ext(&Point::new(z_col.to_vec()));
             folded_evals.push(vec![e]);
             folded_vectors.push(v);
         }
@@ -254,26 +254,26 @@ where
                 .map_err(TensorPcsError::MmcsError)?;
         }
 
-        // Consistency check
-        let col_coeffs_poly = Poly::new_from_point(z_col, Chal::ONE);
-        let col_coeffs = col_coeffs_poly.as_slice();
+        // Compute evaluation points (row coefficients for folding)
+        let row_coeffs_poly = Poly::new_from_point(z_row, Chal::ONE);
+        let row_coeffs = row_coeffs_poly.as_slice();
 
         for (poly_idx, v) in proof.folded_evals.iter().enumerate() {
             // Truncate to the message part for multilinear evaluation
-            let v_message = v[..height].to_vec();
-            let e = Poly::new(v_message).eval_ext(&Point::new(z_row.to_vec()));
+            let v_message = v[..width].to_vec();
+            let e = Poly::new(v_message).eval_ext(&Point::new(z_col.to_vec()));
             if e != values[poly_idx][0] {
                 return Err(TensorPcsError::EvaluationMismatch);
             }
 
-            // Linear constraint check: fold(OpenedRow, z_col) == v[idx]
+            // Linear constraint check: sum beta_i(z_row) * C_{i, idx} == v[idx]
             // This is checked for all sampled indices (including parity bits)
             for (query_idx, &idx) in column_indices.iter().enumerate() {
-                let opened_row = &proof.opened_columns[query_idx][poly_idx];
+                let opened_column = &proof.opened_columns[query_idx][poly_idx];
 
                 let mut rhs = Chal::ZERO;
-                for (j, val) in opened_row.iter().enumerate() {
-                    rhs += col_coeffs[j] * *val;
+                for (i, &val) in opened_column.iter().enumerate() {
+                    rhs += row_coeffs[i] * val;
                 }
 
                 if rhs != v[idx] {
