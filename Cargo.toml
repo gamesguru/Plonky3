@@ -39,6 +39,7 @@ members = [
     "reed-solomon",
     "rescue",
     "sha256",
+    "sumcheck",
     "symmetric",
     "tensor-pcs",
     "uni-stark",
@@ -132,6 +133,7 @@ p3-poseidon2-air = { path = "poseidon2-air", version = "0.5.1" }
 p3-reed-solomon = { path = "reed-solomon", version = "0.5.1" }
 p3-rescue = { path = "rescue", version = "0.5.1" }
 p3-sha256 = { path = "sha256", version = "0.5.1" }
+p3-sumcheck = { path = "sumcheck", version = "0.5.1" }
 p3-symmetric = { path = "symmetric", version = "0.5.1" }
 p3-tensor-pcs = { path = "tensor-pcs", version = "0.5.1" }
 p3-uni-stark = { path = "uni-stark", version = "0.5.1" }

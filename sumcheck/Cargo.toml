@@ -1,0 +1,30 @@
+[package]
+name = "p3-sumcheck"
+description = "Linear-time sumcheck protocol on boolean hypercube"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+itertools.workspace = true
+p3-challenger.workspace = true
+p3-field.workspace = true
+p3-multilinear-util.workspace = true
+p3-matrix.workspace = true
+
+[dev-dependencies]
+p3-baby-bear.workspace = true
+p3-keccak.workspace = true
+p3-maybe-rayon.workspace = true
+p3-util.workspace = true
+tracing.workspace = true
+
+[features]
+parallel = ["p3-maybe-rayon/parallel", "p3-multilinear-util/parallel"]
+
+[lints]
+workspace = true
