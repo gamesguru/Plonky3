@@ -19,8 +19,11 @@ where
     L: UndefinedLde<F, In>,
     In: Matrix<F>,
 {
+    // Low-degree extension
     lde: L,
+    // Codeword length
     n: usize,
+    // Message length
     k: usize,
     _phantom: PhantomData<(F, L, In)>,
 }
@@ -49,6 +52,7 @@ where
 {
     type Out = L::Out;
 
+    // Encode with LDE batch evaluation
     fn encode_batch(&self, messages: In) -> Self::Out {
         self.lde.lde_batch(messages, self.n)
     }

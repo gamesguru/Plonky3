@@ -6,16 +6,16 @@ use p3_matrix::Matrix;
 use rand::RngExt;
 use rand::distr::{Distribution, StandardUniform};
 
-/// A sparse matrix stored in the compressed sparse row format.
+/// A sparse matrix, stored in compressed sparse row format
 #[derive(Debug)]
 pub struct CsrMatrix<T> {
     width: usize,
 
-    /// A list of `(col, coefficient)` pairs.
+    /// List of `(col, coefficient)` pairs
     nonzero_values: Vec<(usize, T)>,
 
-    /// Indices of `nonzero_values`. The `i`th index here indicates the first index belonging to the
-    /// `i`th row.
+    /// Indices of non-zero values.
+    /// The i-th "index" is the first non-zero value in the i-th row.
     row_indices: Vec<usize>,
 }
 
@@ -35,6 +35,7 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
         &mut self.nonzero_values[range]
     }
 
+    /// Generate random sparse matrix w/ fixed row weight
     pub fn rand_fixed_row_weight<R: RngExt>(
         rng: &mut R,
         rows: usize,
@@ -60,6 +61,7 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
         }
     }
 
+    /// Generate random sparse matrix w/ fixed col weight (left-regular graph)
     pub fn rand_fixed_col_weight<R: RngExt>(
         rng: &mut R,
         rows: usize,
@@ -70,6 +72,7 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
         T: Default,
         StandardUniform: Distribution<T>,
     {
+        // Sample rows per column to build COO list
         let mut entries = Vec::with_capacity(cols * col_weight);
         for c in 0..cols {
             let indices = rand::seq::index::sample(rng, rows, col_weight);
@@ -78,8 +81,10 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
             }
         }
 
+        // Sort by row for CSR conversion
         entries.sort_unstable_by_key(|&(r, _, _)| r);
 
+        // Compress down to CSR arrays
         let mut nonzero_values = Vec::with_capacity(cols * col_weight);
         let mut row_indices = vec![0; rows + 1];
 

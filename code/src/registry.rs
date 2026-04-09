@@ -21,11 +21,13 @@ where
     In: Matrix<F>,
     Out: Matrix<F>,
 {
+    // Sort ascending by message length
     pub fn new(mut codes: Vec<Box<dyn SystematicLinearCode<F, In, Out = Out>>>) -> Self {
         codes.sort_by_key(|c| c.message_len());
         Self { codes }
     }
 
+    // Exact match for message length
     pub fn for_message_len(
         &self,
         message_len: usize,
@@ -47,6 +49,7 @@ where
 {
     type Out = Out;
 
+    // Delegate to exactly matching code
     fn encode_batch(&self, messages: In) -> Self::Out {
         self.for_message_len(messages.height())
             .encode_batch(messages)
@@ -59,7 +62,7 @@ where
     In: Matrix<F>,
     Out: Matrix<F>,
 {
-    /// The next supported message length that is at least `min`.
+    // Next supported message length >= min
     fn next_message_len(&self, min: usize) -> Option<usize> {
         for c in &self.codes {
             if c.message_len() >= min {
@@ -69,6 +72,7 @@ where
         None
     }
 
+    // Lookup codeword length
     fn codeword_len(&self, message_len: usize) -> Option<usize> {
         for c in &self.codes {
             if c.message_len() == message_len {

@@ -11,15 +11,18 @@ use p3_matrix::stack::VerticalPair;
 use crate::mul::mul_csr_dense;
 use crate::sparse::CsrMatrix;
 
-/// The Spielman-based code described in the Brakedown paper.
+/// Spielman-based code, described in Brakedown paper
 #[derive(Debug)]
 pub struct BrakedownCode<F, IC>
 where
     F: Field,
     IC: SystematicCode<F, RowMajorMatrix<F>>,
 {
+    /// Sparse matrix A (mapping messages to intermediate words)
     pub a: CsrMatrix<F>,
+    /// Sparse matrix B (mapping inner codewords to final parity)
     pub b: CsrMatrix<F>,
+    /// Inner code (applied to words mapped by A)
     pub inner_code: Box<IC>,
 }
 
@@ -51,9 +54,9 @@ where
     type Out = VerticalPair<In, VerticalPair<IC::Out, RowMajorMatrix<F>>>;
 
     fn encode_batch(&self, x: In) -> Self::Out {
-        let y = mul_csr_dense(&self.a, &x);
-        let z = self.inner_code.encode_batch(y);
-        let v = mul_csr_dense(&self.b, &z);
+        let y = mul_csr_dense(&self.a, &x); // y = Ax
+        let z = self.inner_code.encode_batch(y); // z = InnerCode(y)
+        let v = mul_csr_dense(&self.b, &z); // v = Bz
 
         let parity = VerticalPair::new(z, v);
         VerticalPair::new(x, parity)
@@ -77,6 +80,7 @@ where
     }
 }
 
+// Stubs
 impl<F, IC, In> SystematicCodeOrFamily<F, In> for BrakedownCode<F, IC>
 where
     F: Field,
@@ -118,6 +122,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    use p3_field::PrimeCharacteristicRing;
     use p3_mersenne_31::Mersenne31;
     use rand::SeedableRng;
     use rand_chacha::ChaCha20Rng;

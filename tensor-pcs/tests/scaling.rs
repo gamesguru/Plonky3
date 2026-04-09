@@ -16,19 +16,21 @@ type MyCompress = CompressionFunctionFromHasher<MyHash, 2, 4>;
 type MyMmcs =
     MerkleTreeMmcs<[F; VECTOR_LEN], [u64; VECTOR_LEN], SerializingHasher<MyHash>, MyCompress, 2, 4>;
 
+/// Test suite attempting to benchmark asymptotic performance Tensor PCS. Run with `--nocapture`
+/// TODO: This should probably be disabled (or refactored to make useful assertions).
 #[test]
 fn test_tensor_pcs_scaling_suite() {
     let hash = MyHash::new(KeccakF {});
     let compress = MyCompress::new(hash);
     let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
 
-    println!("\n=== Tensor PCS Scaling Suite (All Directions) ===");
+    println!("\n=== Tensor PCS Scaling Suite (all directions) ===");
 
-    // Breadth Scaling (Varying Depth n and Number of Polys m)
+    // Breadth scaling (varying depth, n, and number of polynomials, m)
     println!("\n--- Breadth Scaling (varying log_n and m) ---");
     for log_n in [12, 14, 16] {
         let n = 1 << log_n;
-        // Only do large m=100 for the small depth log_n=12,14 to save time
+        // Only do large m=100 for small depths log_n=12,14 to save time
         let m_cases = if log_n <= 14 {
             vec![1, 10, 100]
         } else {
@@ -55,8 +57,8 @@ fn test_tensor_pcs_scaling_suite() {
         }
     }
 
-    // Transposition Scaling (Depth)
-    println!("\n--- Transposition Scaling (varying log_n) ---");
+    // Transposition scaling (depth)
+    println!("\n--- Transposition scaling (varying log_n) ---");
     for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
         let width = 1 << (log_n / 2);
@@ -80,8 +82,8 @@ fn test_tensor_pcs_scaling_suite() {
         );
     }
 
-    // Folding Round Simulation (Linearity in Opening)
-    println!("\n--- Folding Round Simulation (Sumcheck Step) ---");
+    // Folding round simulation (linear in opening)
+    println!("\n--- Folding round simulation (Sumcheck Step) ---");
     for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
         let vals: Vec<F> = (0..n).map(|i| F::from_u32(i as u32)).collect();
@@ -102,7 +104,7 @@ fn test_tensor_pcs_scaling_suite() {
         );
     }
 
-    // Hadamard Product Scaling (Constraint Evaluation)
+    // Hadamard product scaling (constraint eval)
     println!("\n--- Hadamard Product Scaling (A * B) ---");
     for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
@@ -124,8 +126,8 @@ fn test_tensor_pcs_scaling_suite() {
         );
     }
 
-    // Linearity Scaling (Depth)
-    println!("\n--- Linearity Scaling (Depth up to 24 bits) ---");
+    // Linearity scaling (depth)
+    println!("\n--- Linearity scaling (depths up to 24 bits) ---");
     for log_n in [10, 14, 18, 20, 22, 24] {
         let n = 1 << log_n;
         let code = IdentityCode { len: n };

@@ -200,7 +200,7 @@ where
         while row_indices.len() < self.num_queries {
             let idx = challenger.sample_bits(bits);
             if idx < codeword_len {
-                // TODO: Optimize and enhance with sampling without replacement (`!row_indices.contains(&idx)`) to maximize structural security bits per query
+                // TODO: dedup sampled indices (!row_indices.contains(&idx)) to hit exact security targets
                 row_indices.push(idx);
             }
         }
@@ -256,13 +256,12 @@ where
         while row_indices.len() < self.num_queries {
             let idx = challenger.sample_bits(bits);
             if idx < codeword_len {
-                // TODO: Sync iteration loop with sampling without replacement logic from the prover if updated
+                // TODO: keep sampling logic synced with prover
                 row_indices.push(idx);
             }
         }
 
-        // Verify MMCS openings
-        // Wait! dimensions should be exact. Width W = 2^log_c.
+        // Verify MMCS openings. Dimensions must be exact: width W = 2^log_c.
         let width = 1 << log_c;
         let dims = vec![
             p3_matrix::Dimensions {
@@ -282,7 +281,7 @@ where
                 .map_err(TensorPcsError::MmcsError)?;
         }
 
-        // Verify proof structure dimensions to prevent panics
+        // Verify proof structure/dimension to avoid panic
         if proof.folded_evals.len() != values.len() {
             return Err(TensorPcsError::InvalidProof("folded_evals length mismatch"));
         }
@@ -302,7 +301,7 @@ where
             }
 
             // Evaluation e = v(z_row)
-            // Truncate to the message part for multilinear evaluation
+            // Truncate to message part for multilinear evaluation
             assert!(
                 v.len() >= height,
                 "Encoded column shorter than message length"
@@ -313,23 +312,23 @@ where
                 return Err(TensorPcsError::EvaluationMismatch);
             }
 
-            // Reconstruct the message as a RowMajorMatrix over the base field
+            // Reconstruct message as RowMajorMatrix over base field
             let mut flat_coeffs = Vec::with_capacity(height * Chal::DIMENSION);
             for val in &v_message {
-                // TODO: Depending on pinned Plonky3 version, this may be optimized or renamed to `as_base_slice()`
+                // TODO: check if upstream P3 renames this to as_base_slice()
                 flat_coeffs.extend_from_slice(val.as_basis_coefficients_slice());
             }
             let m = RowMajorMatrix::new(flat_coeffs, Chal::DIMENSION);
             let encoded_m = self.code.encode_batch(m);
 
-            // Reconstruct the encoded extension field elements
+            // Reconstruct encoded extension field elements
             let mut reencoded_v = Vec::with_capacity(codeword_len);
             for row in encoded_m.rows() {
                 let row_vec: Vec<F> = row.into_iter().collect();
                 reencoded_v.push(Chal::from_basis_coefficients_slice(&row_vec).unwrap());
             }
 
-            // The folded vector from the prover must be a valid codeword
+            // The folded vector from prover must be valid codeword
             if reencoded_v != *v {
                 return Err(TensorPcsError::InvalidProof(
                     "folded vector is not a valid codeword",
@@ -337,7 +336,7 @@ where
             }
 
             // Linear constraint check: sum beta_j(z_col) * M_{idx, j} == v[idx]
-            // where idx is the sampled row of the committed matrix.
+            // where idx is sampled row of the committed matrix.
             for (query_idx, &idx) in row_indices.iter().enumerate() {
                 let opened_matrix_evals = &proof.opened_rows[query_idx];
                 if opened_matrix_evals.len() != values.len() {
@@ -369,41 +368,26 @@ where
 #[cfg(test)]
 mod tests {
     extern crate alloc;
-    #[cfg(feature = "std")]
     use alloc::vec;
     use alloc::vec::Vec;
 
-    #[cfg(feature = "std")]
     use p3_baby_bear::BabyBear;
-    #[cfg(feature = "std")]
     use p3_brakedown::BrakedownCode;
-    #[cfg(feature = "std")]
     use p3_brakedown::sparse::CsrMatrix;
-    #[cfg(feature = "std")]
     use p3_challenger::SerializingChallenger32;
-    #[cfg(feature = "std")]
     use p3_code::IdentityCode;
-    #[cfg(feature = "std")]
     use p3_field::extension::BinomialExtensionField;
-    #[cfg(feature = "std")]
     use p3_keccak::Keccak256Hash;
-    #[cfg(feature = "std")]
     use p3_matrix::Matrix;
-    #[cfg(feature = "std")]
     use p3_matrix::dense::RowMajorMatrix;
-    #[cfg(feature = "std")]
     use p3_merkle_tree::MerkleTreeMmcs;
-    #[cfg(feature = "std")]
-    use p3_symmetric::CompressionFunctionFromHasher;
-    use p3_symmetric::SerializingHasher;
-    #[cfg(feature = "std")]
-    use {
-        crate::MultilinearPcs, crate::TensorPcsProverData, crate::tensor_pcs::TensorPcs,
-        rand::SeedableRng,
-    };
+    use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
+    use rand::SeedableRng;
+
+    use crate::tensor_pcs::TensorPcs;
+    use crate::{MultilinearPcs, TensorPcsProverData};
 
     #[test]
-    #[cfg(feature = "std")]
     fn test_tensor_pcs_commit_identity_code() {
         let values = (1..=12).map(BabyBear::new).collect::<Vec<_>>();
         let evals = RowMajorMatrix::new(values, 3); // 4 rows, 3 columns
@@ -425,12 +409,11 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn test_tensor_pcs_commit_brakedown() {
         let values = (1..=32).map(BabyBear::new).collect::<Vec<_>>();
         let evals = RowMajorMatrix::new(values, 2); // 16 rows, 2 columns
 
-        // Manual BrakedownCode initialization matching the logic of brakedown! macro
+        // Manual BrakedownCode initialization matching logic of brakedown! macro
         let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(0);
         let a = CsrMatrix::<BabyBear>::rand_fixed_col_weight(&mut rng, 16, 16, 4);
         let b = CsrMatrix::<BabyBear>::rand_fixed_col_weight(&mut rng, 16, 16, 4);
@@ -453,7 +436,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn test_tensor_pcs_linearity() {
         let values1 = (1..=8).map(BabyBear::new).collect::<Vec<_>>();
         let values2 = (9..=16).map(BabyBear::new).collect::<Vec<_>>();
@@ -493,7 +475,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn test_tensor_pcs_commit_multiple_polys() {
         let v1 = (1..=4).map(BabyBear::new).collect::<Vec<_>>();
         let v2 = (5..=8).map(BabyBear::new).collect::<Vec<_>>();
@@ -513,7 +494,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "std")]
     fn test_tensor_pcs_full_protocol() {
         type F = BabyBear;
         type Chal = BinomialExtensionField<F, 4>;

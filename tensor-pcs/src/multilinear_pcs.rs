@@ -13,15 +13,15 @@ pub trait MultilinearPcs<Val: Field, Challenge: ExtensionField<Val>> {
     type Proof: Clone + Serialize + DeserializeOwned;
     type Error: core::fmt::Debug;
 
-    /// Commit to a batch of multilinear polynomials.
-    /// `evals` is an iterator of evaluations of multilinear polynomials over the boolean hypercube.
-    /// The size of each evaluation must be a power of two.
+    /// Commit to batch of multilinear polynomials.
+    /// `evals` is an iterator of evals of multilinear polynomials over boolean hypercube.
+    /// The size of each eval must be a power of two.
     fn commit(
         &self,
         evals: impl IntoIterator<Item = p3_matrix::dense::RowMajorMatrix<Val>>,
     ) -> (Self::Commitment, Self::ProverData);
 
-    /// Open a batch of committed multilinear polynomials at a given point `z` in the hypercube.
+    /// Open a batch of committed polynomials at a given point, z, in the hypercube.
     fn open(
         &self,
         prover_data: &Self::ProverData,
@@ -29,7 +29,7 @@ pub trait MultilinearPcs<Val: Field, Challenge: ExtensionField<Val>> {
         challenger: &mut impl p3_challenger::FieldChallenger<Val>,
     ) -> (Vec<Vec<Challenge>>, Self::Proof);
 
-    /// Verify a batch of opening proofs.
+    /// Verify a batch of opening proofs
     fn verify(
         &self,
         commitment: &Self::Commitment,

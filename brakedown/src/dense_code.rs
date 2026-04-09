@@ -6,11 +6,10 @@ use p3_matrix::Matrix;
 use p3_matrix::dense::RowMajorMatrix;
 use p3_matrix::stack::VerticalPair;
 
-/// A generic systematic linear code that computes parity via a dense matrix-vector product.
+/// A generic systematic linear code. Computes parity via dense matrix vector product.
 ///
-/// This is particularly useful as the base case for Brakedown codes, where the lengths
-/// are sufficiently small (e.g., $k \approx 30$) that a dense $O(k^2)$ encoding operations
-/// is instantaneous and prevents restriction to 2-adic fields.
+/// Useful as the base case for Brakedown codes, where lengths are small (k ~ 30), so
+/// dense $O(k^2)$ encoding operations are quick & not constrained to 2-adic fields.
 #[derive(Debug)]
 pub struct DenseLinearCode<F: Field> {
     pub generator: RowMajorMatrix<F>,
@@ -50,11 +49,11 @@ where
         let parity_height = self.codeword_len - self.message_len;
         let mut parity_values = vec![F::ZERO; parity_height * out_width];
 
-        // Perform dense matrix multiplication: Parity = G * Messages
+        // Perform dense matrix multiplication: Parity = G * N_MESSAGES
         for r in 0..parity_height {
             for i in 0..self.message_len {
                 let g_val = self.generator.values[r * self.message_len + i];
-                // Now iterate across the columns contiguously in memory
+                // Inner loop over columns, stay locally for cache
                 for c in 0..out_width {
                     let msg_val = messages.get(i, c).unwrap_or_default();
                     parity_values[r * out_width + c] += g_val * msg_val;
@@ -67,6 +66,7 @@ where
     }
 }
 
+// Getters/stubs
 impl<F: Field, In: Matrix<F>> Code<F, In> for DenseLinearCode<F> {
     fn message_len(&self) -> usize {
         self.message_len

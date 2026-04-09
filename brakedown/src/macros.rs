@@ -19,8 +19,7 @@ macro_rules! brakedown_to_dense {
         let parity_height = codeword_len - message_len;
 
         let mut rng = ChaCha20Rng::seed_from_u64(0);
-        // Should be all zeros
-        let mut parity_generator = alloc::vec![core::default::Default::default(); parity_height * message_len];
+        let mut parity_generator = alloc::vec![F::ZERO; parity_height * message_len];
         for i in 0..(parity_height * message_len) {
             parity_generator[i] = rng.random();
         }

@@ -5,7 +5,7 @@ use crate::{
     Code, CodeOrFamily, LinearCode, SystematicCode, SystematicCodeOrFamily, SystematicLinearCode,
 };
 
-/// The trivial code whose encoder is the identity function.
+/// Trivial code (encoded by identity function)
 #[derive(Debug)]
 pub struct IdentityCode {
     pub len: usize,
@@ -14,6 +14,7 @@ pub struct IdentityCode {
 impl<F: Field, In: Matrix<F>> CodeOrFamily<F, In> for IdentityCode {
     type Out = In;
 
+    // Returns un-encoded
     fn encode_batch(&self, messages: In) -> Self::Out {
         messages
     }
@@ -24,6 +25,7 @@ impl<F: Field, In: Matrix<F>> Code<F, In> for IdentityCode {
         self.len
     }
 
+    // No parity added, codeword is message
     fn codeword_len(&self) -> usize {
         self.len
     }
