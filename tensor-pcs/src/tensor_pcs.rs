@@ -148,8 +148,10 @@ where
         let n = point.len();
         let height = self.code.message_len();
         let log_r = height.ilog2() as usize;
-        let log_c = n - log_r;
-        let width = 1 << log_c;
+        let log_c = n
+            .checked_sub(log_r)
+            .expect("point length is too small for message length");
+        let width = 1_usize.checked_shl(u32::try_from(log_c).unwrap()).unwrap();
 
         // Variables [0..log_r] are MSBs (rows), [log_r..n] are LSBs (columns)
         let (z_row, z_col) = point.split_at(log_r);
@@ -166,7 +168,8 @@ where
             let mut v = vec![Chal::ZERO; m.height()];
             for (i, row) in m.rows().enumerate() {
                 for (j, val) in row.into_iter().enumerate() {
-                    v[i] += col_coeffs[j] * val;
+                    let product = <Chal as core::ops::Mul<F>>::mul(col_coeffs[j], val);
+                    <Chal as core::ops::AddAssign<Chal>>::add_assign(&mut v[i], product);
                 }
             }
 
@@ -243,12 +246,9 @@ where
             ));
         }
         let log_r = height.ilog2() as usize;
-        if n < log_r {
-            return Err(TensorPcsError::InvalidProof(
-                "point length is too small for message length",
-            ));
-        }
-        let log_c = n - log_r;
+        let log_c = n.checked_sub(log_r).ok_or(TensorPcsError::InvalidProof(
+            "point length is too small for message length",
+        ))?;
         let (z_row, z_col) = point.split_at(log_r);
 
         // Observe folded vectors in Fiat-Shamir transcript (must match prover)
@@ -286,7 +286,7 @@ where
             return Err(TensorPcsError::InvalidProof("mmcs_proofs length mismatch"));
         }
 
-        let width = 1 << log_c;
+        let width = 1_usize.checked_shl(u32::try_from(log_c).unwrap()).unwrap();
 
         // Verify MMCS openings
         self.verify_mmcs_openings(
@@ -398,7 +398,13 @@ where
             }
 
             // Reconstruct message as RowMajorMatrix over base field
-            let mut flat_coeffs = Vec::with_capacity(height * Chal::DIMENSION);
+            let capacity =
+                height
+                    .checked_mul(Chal::DIMENSION)
+                    .ok_or(TensorPcsError::InvalidProof(
+                        "matrix coefficients size overflow",
+                    ))?;
+            let mut flat_coeffs = Vec::with_capacity(capacity);
             for val in &v_message {
                 flat_coeffs.extend_from_slice(val.as_basis_coefficients_slice());
             }
@@ -439,7 +445,8 @@ where
 
                 let mut rhs = Chal::ZERO;
                 for (j, &val) in opened_row.iter().enumerate() {
-                    rhs += col_coeffs[j] * val;
+                    let product = <Chal as core::ops::Mul<F>>::mul(col_coeffs[j], val);
+                    <Chal as core::ops::AddAssign<Chal>>::add_assign(&mut rhs, product);
                 }
 
                 if rhs != v[idx] {
