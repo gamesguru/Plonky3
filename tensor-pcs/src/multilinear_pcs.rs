@@ -30,6 +30,10 @@ pub trait StarkMultilinearPcs<Val: Field, Challenge: ExtensionField<Val>> {
     ) -> (Vec<Vec<Challenge>>, Self::Proof);
 
     /// Verify a batch of opening proofs
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the proof is invalid or fails verification.
     fn verify(
         &self,
         commitment: &Self::Commitment,

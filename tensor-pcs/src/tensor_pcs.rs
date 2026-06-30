@@ -79,10 +79,10 @@ pub enum TensorPcsError<ME> {
 impl<ME: core::fmt::Display> core::fmt::Display for TensorPcsError<ME> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::MmcsError(e) => write!(f, "MMCS error: {}", e),
+            Self::MmcsError(e) => write!(f, "MMCS error: {e}"),
             Self::EvaluationMismatch => write!(f, "Evaluation mismatch"),
             Self::ConsistencyMismatch => write!(f, "Consistency mismatch"),
-            Self::InvalidProof(msg) => write!(f, "Invalid proof: {}", msg),
+            Self::InvalidProof(msg) => write!(f, "Invalid proof: {msg}"),
         }
     }
 }
@@ -286,14 +286,59 @@ where
             return Err(TensorPcsError::InvalidProof("mmcs_proofs length mismatch"));
         }
 
-        // Verify MMCS openings. Dimensions must be exact: width W = 2^log_c.
         let width = 1 << log_c;
+
+        // Verify MMCS openings
+        self.verify_mmcs_openings(
+            commitment,
+            &row_indices,
+            codeword_len,
+            width,
+            values.len(),
+            proof,
+        )?;
+
+        // Verify folded vectors (re-encoding & linear constraints)
+        self.verify_folded_vectors(
+            &row_indices,
+            codeword_len,
+            height,
+            width,
+            z_row,
+            z_col,
+            values,
+            proof,
+        )?;
+
+        Ok(())
+    }
+}
+
+impl<F, C, M> TensorPcs<F, C, M>
+where
+    F: Field,
+    C: LinearCode<F, RowMajorMatrix<F>> + SystematicCode<F, RowMajorMatrix<F>>,
+    C::Out: Clone,
+    M: Mmcs<F>,
+{
+    fn verify_mmcs_openings<Chal>(
+        &self,
+        commitment: &M::Commitment,
+        row_indices: &[usize],
+        codeword_len: usize,
+        width: usize,
+        values_len: usize,
+        proof: &TensorPcsProof<F, M, Chal>,
+    ) -> Result<(), TensorPcsError<M::Error>>
+    where
+        Chal: ExtensionField<F> + p3_field::BasedVectorSpace<F>,
+    {
         let dims = vec![
             p3_matrix::Dimensions {
                 height: codeword_len,
-                width
+                width,
             };
-            values.len()
+            values_len
         ];
 
         for (query_idx, &idx) in row_indices.iter().enumerate() {
@@ -305,7 +350,24 @@ where
                 .verify_batch(commitment, &dims, idx, opening_ref)
                 .map_err(TensorPcsError::MmcsError)?;
         }
+        Ok(())
+    }
 
+    #[allow(clippy::too_many_arguments)]
+    fn verify_folded_vectors<Chal>(
+        &self,
+        row_indices: &[usize],
+        codeword_len: usize,
+        height: usize,
+        width: usize,
+        z_row: &[Chal],
+        z_col: &[Chal],
+        values: &[Vec<Chal>],
+        proof: &TensorPcsProof<F, M, Chal>,
+    ) -> Result<(), TensorPcsError<M::Error>>
+    where
+        Chal: ExtensionField<F> + p3_field::BasedVectorSpace<F>,
+    {
         // Compute evaluation points (column coefficients for folding)
         let col_coeffs_poly = Poly::new_from_point(z_col, Chal::ONE);
         let col_coeffs = col_coeffs_poly.as_slice();
@@ -338,7 +400,6 @@ where
             // Reconstruct message as RowMajorMatrix over base field
             let mut flat_coeffs = Vec::with_capacity(height * Chal::DIMENSION);
             for val in &v_message {
-                // TODO: check if upstream P3 renames this to as_base_slice()
                 flat_coeffs.extend_from_slice(val.as_basis_coefficients_slice());
             }
             let m = RowMajorMatrix::new(flat_coeffs, Chal::DIMENSION);
@@ -386,7 +447,6 @@ where
                 }
             }
         }
-
         Ok(())
     }
 }
