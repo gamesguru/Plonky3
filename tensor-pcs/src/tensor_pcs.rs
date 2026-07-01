@@ -478,6 +478,7 @@ mod tests {
     use p3_brakedown::sparse::CsrMatrix;
     use p3_challenger::SerializingChallenger32;
     use p3_code::IdentityCode;
+    use p3_field::PrimeCharacteristicRing;
     use p3_field::extension::BinomialExtensionField;
     use p3_keccak::Keccak256Hash;
     use p3_matrix::Matrix;
@@ -634,5 +635,243 @@ mod tests {
         let result = pcs.verify(&commitment, &point, &values, &proof, &mut challenger_verify);
 
         assert!(result.is_ok());
+    }
+
+    // =========================================================================
+    // ADVERSARIAL / NEGATIVE TESTS
+    // =========================================================================
+
+    #[test]
+    fn test_tensor_pcs_malicious_eval_mismatch() {
+        type F = BabyBear;
+        type Chal = BinomialExtensionField<F, 4>;
+
+        let values = (1..=16).map(F::new).collect::<Vec<_>>();
+        let evals = RowMajorMatrix::new(values, 2); // 8 rows, 2 columns
+        let code = IdentityCode { len: 8 };
+
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<F, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
+        let pcs = TensorPcs::new(code, mmcs, 40);
+
+        let (commitment, prover_data) =
+            <TensorPcs<_, _, _> as StarkMultilinearPcs<F, Chal>>::commit(&pcs, vec![evals]);
+
+        let point = vec![
+            Chal::from(F::new(1)),
+            Chal::from(F::new(2)),
+            Chal::from(F::new(3)),
+            Chal::from(F::new(4)),
+        ];
+        let mut prover_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+
+        let (mut values, proof) = pcs.open(&prover_data, &point, &mut prover_challenger);
+
+        // ADVERSARY: Mutate the claimed evaluation
+        values[0][0] += Chal::ONE;
+
+        let mut verifier_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        let result = pcs.verify(
+            &commitment,
+            &point,
+            &values,
+            &proof,
+            &mut verifier_challenger,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tensor_pcs_malicious_invalid_codeword() {
+        type F = BabyBear;
+        type Chal = BinomialExtensionField<F, 4>;
+
+        let values = (1..=32).map(F::new).collect::<Vec<_>>();
+        let evals = RowMajorMatrix::new(values, 2);
+
+        // We MUST use Brakedown here so the codeword has a Parity section to mutate
+        let mut rng = rand_chacha::ChaCha20Rng::seed_from_u64(0);
+        let a = CsrMatrix::<F>::rand_fixed_col_weight(&mut rng, 16, 16, 4);
+        let b = CsrMatrix::<F>::rand_fixed_col_weight(&mut rng, 16, 16, 4);
+        let inner_code = alloc::boxed::Box::new(IdentityCode { len: 16 });
+        let code = BrakedownCode { a, b, inner_code };
+
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<F, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
+
+        let pcs = TensorPcs::new(code, mmcs, 40);
+        let (commitment, prover_data) =
+            <TensorPcs<_, _, _> as StarkMultilinearPcs<F, Chal>>::commit(&pcs, vec![evals]);
+
+        let point = vec![
+            Chal::from(F::new(1)),
+            Chal::from(F::new(2)),
+            Chal::from(F::new(3)),
+            Chal::from(F::new(4)),
+            Chal::from(F::new(5)),
+        ];
+        let mut prover_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+
+        let (values, mut proof) = pcs.open(&prover_data, &point, &mut prover_challenger);
+
+        // ADVERSARY: Mutate the Parity section of the folded vector `v`.
+        let last_idx = proof.folded_vectors[0].len() - 1;
+        proof.folded_vectors[0][last_idx] += Chal::ONE;
+
+        let mut verifier_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        let result = pcs.verify(
+            &commitment,
+            &point,
+            &values,
+            &proof,
+            &mut verifier_challenger,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tensor_pcs_malicious_mmcs_opening() {
+        type F = BabyBear;
+        type Chal = BinomialExtensionField<F, 4>;
+
+        let values = (1..=16).map(F::new).collect::<Vec<_>>();
+        let evals = RowMajorMatrix::new(values, 2);
+        let code = IdentityCode { len: 8 };
+
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<F, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
+        let pcs = TensorPcs::new(code, mmcs, 40);
+
+        let (commitment, prover_data) =
+            <TensorPcs<_, _, _> as StarkMultilinearPcs<F, Chal>>::commit(&pcs, vec![evals]);
+
+        let point = vec![
+            Chal::from(F::new(1)),
+            Chal::from(F::new(2)),
+            Chal::from(F::new(3)),
+            Chal::from(F::new(4)),
+        ];
+        let mut prover_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+
+        let (values, mut proof) = pcs.open(&prover_data, &point, &mut prover_challenger);
+
+        // ADVERSARY: Corrupt an opened row value. The Merkle Tree verification should catch it.
+        proof.opened_rows[0][0][0] += F::ONE;
+
+        let mut verifier_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        let result = pcs.verify(
+            &commitment,
+            &point,
+            &values,
+            &proof,
+            &mut verifier_challenger,
+        );
+
+        assert!(matches!(result, Err(super::TensorPcsError::MmcsError(_))));
+    }
+
+    #[test]
+    fn test_tensor_pcs_point_too_small() {
+        type F = BabyBear;
+        type Chal = BinomialExtensionField<F, 4>;
+
+        let values = (1..=16).map(F::new).collect::<Vec<_>>();
+        let evals = RowMajorMatrix::new(values, 2);
+        let code = IdentityCode { len: 8 }; // log_r = 3
+
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<F, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
+        let pcs = TensorPcs::new(code, mmcs, 40);
+
+        let (commitment, _prover_data) =
+            <TensorPcs<_, _, _> as StarkMultilinearPcs<F, Chal>>::commit(&pcs, vec![evals]);
+
+        // ADVERSARY: Verifier provides a hypercube point that is physically too small for the committed matrix
+        let bad_point = vec![Chal::ONE, Chal::ONE]; // Length 2. But IdentityCode len=8 needs log_r=3!
+
+        let mut verifier_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        // Provide a dummy proof since it should early-exit on the bounds check anyway.
+        let dummy_proof = super::TensorPcsProof {
+            folded_vectors: vec![],
+            mmcs_proofs: vec![],
+            opened_rows: vec![],
+        };
+        let result = pcs.verify(
+            &commitment,
+            &bad_point,
+            &[],
+            &dummy_proof,
+            &mut verifier_challenger,
+        );
+
+        assert!(matches!(
+            result,
+            Err(super::TensorPcsError::InvalidProof(
+                "point length is too small for message length"
+            ))
+        ));
+    }
+
+    #[test]
+    fn test_tensor_pcs_proof_shape_mismatches() {
+        type F = BabyBear;
+        type Chal = BinomialExtensionField<F, 4>;
+
+        let values = (1..=16).map(F::new).collect::<Vec<_>>();
+        let evals = RowMajorMatrix::new(values, 2);
+        let code = IdentityCode { len: 8 };
+
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<F, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
+        let pcs = TensorPcs::new(code, mmcs, 40);
+
+        let (commitment, prover_data) =
+            <TensorPcs<_, _, _> as StarkMultilinearPcs<F, Chal>>::commit(&pcs, vec![evals]);
+
+        let point = vec![
+            Chal::from(F::new(1)),
+            Chal::from(F::new(2)),
+            Chal::from(F::new(3)),
+            Chal::from(F::new(4)),
+        ];
+        let mut prover_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        let (values, mut proof) = pcs.open(&prover_data, &point, &mut prover_challenger);
+
+        // ADVERSARY: Truncate folded_vectors array
+        proof.folded_vectors.pop();
+        let mut verifier_ch = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        let res1 = pcs.verify(&commitment, &point, &values, &proof, &mut verifier_ch);
+        assert!(matches!(
+            res1,
+            Err(super::TensorPcsError::InvalidProof(
+                "folded_vectors length mismatch"
+            ))
+        ));
+
+        // ADVERSARY: Truncate opened_rows array
+        let mut prover_ch2 = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        let (_, mut proof2) = pcs.open(&prover_data, &point, &mut prover_ch2);
+        proof2.opened_rows.pop();
+
+        let mut verifier_ch2 = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        let res2 = pcs.verify(&commitment, &point, &values, &proof2, &mut verifier_ch2);
+        assert!(matches!(
+            res2,
+            Err(super::TensorPcsError::InvalidProof(
+                "opened_rows length mismatch"
+            ))
+        ));
     }
 }
