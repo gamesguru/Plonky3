@@ -119,6 +119,17 @@ where
                 self.code.message_len(),
                 "Matrix height must match the code's message length"
             );
+            assert!(
+                e.width().is_power_of_two(),
+                "Matrix width must be a power of two"
+            );
+            if let Some(first) = evals.first() {
+                assert_eq!(
+                    e.width(),
+                    first.width(),
+                    "All matrices in a batch must have the same width"
+                );
+            }
 
             let encoded = self.code.encode_batch(e.clone());
             // encoded is (codeword_len x width). Each column is a codeword.
@@ -211,8 +222,9 @@ where
         let mut row_indices = Vec::with_capacity(self.num_queries);
         while row_indices.len() < self.num_queries {
             let idx = challenger.sample_bits(bits);
-            if idx < codeword_len {
-                // TODO: dedup sampled indices (!row_indices.contains(&idx)) to hit exact security targets
+            if idx < codeword_len
+                && (codeword_len <= self.num_queries || !row_indices.contains(&idx))
+            {
                 row_indices.push(idx);
             }
         }
@@ -265,9 +277,12 @@ where
         }
 
         for v in values {
-            for &e in v {
-                challenger.observe_algebra_element(e);
-            }
+            let &[e] = v.as_slice() else {
+                return Err(TensorPcsError::InvalidProof(
+                    "expected exactly one evaluation per polynomial",
+                ));
+            };
+            challenger.observe_algebra_element(e);
         }
 
         let codeword_len = self.code.codeword_len();
@@ -275,8 +290,9 @@ where
         let mut row_indices = Vec::with_capacity(self.num_queries);
         while row_indices.len() < self.num_queries {
             let idx = challenger.sample_bits(bits);
-            if idx < codeword_len {
-                // TODO: keep sampling logic synced with prover
+            if idx < codeword_len
+                && (codeword_len <= self.num_queries || !row_indices.contains(&idx))
+            {
                 row_indices.push(idx);
             }
         }
@@ -496,8 +512,8 @@ mod tests {
 
     #[test]
     fn test_tensor_pcs_commit_identity_code() {
-        let values = (1..=12).map(BabyBear::new).collect::<Vec<_>>();
-        let evals = RowMajorMatrix::new(values, 3); // 4 rows, 3 columns
+        let values = (1..=16).map(BabyBear::new).collect::<Vec<_>>();
+        let evals = RowMajorMatrix::new(values, 4); // 4 rows, 4 columns
         let code = IdentityCode { len: 4 };
 
         let hash = Keccak256Hash;
@@ -701,15 +717,18 @@ mod tests {
         let mut honest_values = values.clone();
         honest_values[0][0] = honest_eval;
         for v in &honest_values {
-            for &e in v {
-                verifier_challenger.observe_algebra_element(e);
-            }
+            let &[e] = v.as_slice() else {
+                panic!("expected exactly one evaluation per polynomial");
+            };
+            verifier_challenger.observe_algebra_element(e);
         }
         let bits = codeword_len.next_power_of_two().ilog2() as usize;
         let mut row_indices = Vec::with_capacity(pcs.num_queries);
         while row_indices.len() < pcs.num_queries {
             let idx = verifier_challenger.sample_bits(bits);
-            if idx < codeword_len {
+            if idx < codeword_len
+                && (codeword_len <= pcs.num_queries || !row_indices.contains(&idx))
+            {
                 row_indices.push(idx);
             }
         }
@@ -791,15 +810,18 @@ mod tests {
             verifier_challenger.observe_algebra_slice(v);
         }
         for v in &values {
-            for &e in v {
-                verifier_challenger.observe_algebra_element(e);
-            }
+            let &[e] = v.as_slice() else {
+                panic!("expected exactly one evaluation per polynomial");
+            };
+            verifier_challenger.observe_algebra_element(e);
         }
         let bits = codeword_len.next_power_of_two().ilog2() as usize;
         let mut row_indices = Vec::with_capacity(pcs.num_queries);
         while row_indices.len() < pcs.num_queries {
             let idx = verifier_challenger.sample_bits(bits);
-            if idx < codeword_len {
+            if idx < codeword_len
+                && (codeword_len <= pcs.num_queries || !row_indices.contains(&idx))
+            {
                 row_indices.push(idx);
             }
         }
