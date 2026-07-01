@@ -29,6 +29,10 @@ where
     }
 
     // Exact match for message length
+    ///
+    /// # Panics
+    ///
+    /// Panics if no `Code` in the registry has a matching message length.
     #[must_use]
     pub fn for_message_len(
         &self,
@@ -110,6 +114,7 @@ where
 }
 
 #[cfg(test)]
+#[allow(clippy::arithmetic_side_effects)]
 mod tests {
     use p3_field::PrimeCharacteristicRing;
     use p3_matrix::dense::RowMajorMatrix;
@@ -241,13 +246,13 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(expected = "No code found for message length")]
     fn test_panic_for_message_len() {
         const LEN: usize = 3;
         const NON_EXISTING_MESSAGE_LEN: usize = 1;
         let sl_code_registry = create_sl_code_registry!(LEN);
         // should panic:
-        sl_code_registry.for_message_len(NON_EXISTING_MESSAGE_LEN);
+        let _ = sl_code_registry.for_message_len(NON_EXISTING_MESSAGE_LEN);
     }
 
     #[test]
