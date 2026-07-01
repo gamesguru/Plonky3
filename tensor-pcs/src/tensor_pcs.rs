@@ -155,6 +155,10 @@ where
         let n = point.len();
         let height = self.code.message_len();
         let log_r = height.ilog2() as usize;
+        assert!(
+            n >= log_r,
+            "point length ({n}) is too small for message length log_r ({log_r})"
+        );
         let log_c = n - log_r;
         let width = 1 << log_c;
 
