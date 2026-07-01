@@ -480,8 +480,8 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_brakedown::BrakedownCode;
     use p3_brakedown::sparse::CsrMatrix;
-    use p3_challenger::SerializingChallenger32;
-    use p3_code::IdentityCode;
+    use p3_challenger::{CanSampleBits, FieldChallenger, SerializingChallenger32};
+    use p3_code::{Code, IdentityCode};
     use p3_field::PrimeCharacteristicRing;
     use p3_field::extension::BinomialExtensionField;
     use p3_keccak::Keccak256Hash;
@@ -673,19 +673,66 @@ mod tests {
 
         let (mut values, proof) = pcs.open(&prover_data, &point, &mut prover_challenger);
 
-        // ADVERSARY: Mutate the claimed evaluation
-        values[0][0] += Chal::ONE;
+        // Get the honest evaluation before mutating
+        let honest_eval = values[0][0];
 
+        // ADVERSARY: Corrupt the claimed evaluation
+        // If the true evaluation was 0, it becomes 1. If it was anything else, it becomes 0.
+        values[0][0] = if values[0][0] == Chal::ZERO {
+            Chal::ONE
+        } else {
+            Chal::ZERO
+        };
+
+        // Construct the VerificationCtx directly using honest-derived query indices to test
+        // the core mathematical 'EvaluationMismatch' check bypass.
+        let codeword_len = Code::<F, RowMajorMatrix<F>>::codeword_len(&pcs.code);
+        let log_r = Code::<F, RowMajorMatrix<F>>::message_len(&pcs.code).ilog2() as usize;
+        let log_c = point.len() - log_r;
+        let width = 1 << log_c;
+        let height = Code::<F, RowMajorMatrix<F>>::message_len(&pcs.code);
+        let (z_row, z_col) = point.split_at(log_r);
+
+        // Reconstruct the correct query indices from the honest transcript
         let mut verifier_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
-        let result = pcs.verify(
-            &commitment,
-            &point,
-            &values,
-            &proof,
-            &mut verifier_challenger,
-        );
+        for v in &proof.folded_vectors {
+            verifier_challenger.observe_algebra_slice(v);
+        }
+        let mut honest_values = values.clone();
+        honest_values[0][0] = honest_eval;
+        for v in &honest_values {
+            for &e in v {
+                verifier_challenger.observe_algebra_element(e);
+            }
+        }
+        let bits = codeword_len.next_power_of_two().ilog2() as usize;
+        let mut row_indices = Vec::with_capacity(pcs.num_queries);
+        while row_indices.len() < pcs.num_queries {
+            let idx = verifier_challenger.sample_bits(bits);
+            if idx < codeword_len {
+                row_indices.push(idx);
+            }
+        }
 
-        assert!(result.is_err());
+        let ctx = super::VerificationCtx {
+            pcs: &pcs,
+            commitment: &commitment,
+            proof: &proof,
+            values: &values, // mutated values
+            row_indices: &row_indices,
+            codeword_len,
+            width,
+            height,
+            z_row,
+            z_col,
+        };
+
+        let result = ctx.verify_folded_vectors();
+
+        match result {
+            Err(super::TensorPcsError::EvaluationMismatch) => {}
+            other => panic!("Expected EvaluationMismatch, got {other:?}"),
+        }
     }
 
     #[test]
@@ -727,16 +774,55 @@ mod tests {
         let last_idx = proof.folded_vectors[0].len() - 1;
         proof.folded_vectors[0][last_idx] += Chal::ONE;
 
-        let mut verifier_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
-        let result = pcs.verify(
-            &commitment,
-            &point,
-            &values,
-            &proof,
-            &mut verifier_challenger,
-        );
+        // Construct the VerificationCtx directly using honest-derived query indices to test
+        // the core mathematical 'folded vector is not a valid codeword' check bypass.
+        let codeword_len = Code::<F, RowMajorMatrix<F>>::codeword_len(&pcs.code);
+        let log_r = Code::<F, RowMajorMatrix<F>>::message_len(&pcs.code).ilog2() as usize;
+        let log_c = point.len() - log_r;
+        let width = 1 << log_c;
+        let height = Code::<F, RowMajorMatrix<F>>::message_len(&pcs.code);
+        let (z_row, z_col) = point.split_at(log_r);
 
-        assert!(result.is_err());
+        // Reconstruct the correct query indices from the honest transcript
+        let mut verifier_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        let mut honest_proof = proof.clone();
+        honest_proof.folded_vectors[0][last_idx] -= Chal::ONE; // revert the mutation for challenger
+        for v in &honest_proof.folded_vectors {
+            verifier_challenger.observe_algebra_slice(v);
+        }
+        for v in &values {
+            for &e in v {
+                verifier_challenger.observe_algebra_element(e);
+            }
+        }
+        let bits = codeword_len.next_power_of_two().ilog2() as usize;
+        let mut row_indices = Vec::with_capacity(pcs.num_queries);
+        while row_indices.len() < pcs.num_queries {
+            let idx = verifier_challenger.sample_bits(bits);
+            if idx < codeword_len {
+                row_indices.push(idx);
+            }
+        }
+
+        let ctx = super::VerificationCtx {
+            pcs: &pcs,
+            commitment: &commitment,
+            proof: &proof, // mutated proof
+            values: &values,
+            row_indices: &row_indices,
+            codeword_len,
+            width,
+            height,
+            z_row,
+            z_col,
+        };
+
+        let result = ctx.verify_folded_vectors();
+
+        match result {
+            Err(super::TensorPcsError::InvalidProof("folded vector is not a valid codeword")) => {}
+            other => panic!("Expected folded vector is not a valid codeword, got {other:?}"),
+        }
     }
 
     #[test]
@@ -851,12 +937,13 @@ mod tests {
             Chal::from(F::new(4)),
         ];
         let mut prover_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
-        let (values, mut proof) = pcs.open(&prover_data, &point, &mut prover_challenger);
+        let (values, proof) = pcs.open(&prover_data, &point, &mut prover_challenger);
 
         // ADVERSARY: Truncate folded_vectors array
-        proof.folded_vectors.pop();
+        let mut bad_proof_1 = proof.clone();
+        bad_proof_1.folded_vectors.pop();
         let mut verifier_ch = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
-        let res1 = pcs.verify(&commitment, &point, &values, &proof, &mut verifier_ch);
+        let res1 = pcs.verify(&commitment, &point, &values, &bad_proof_1, &mut verifier_ch);
         assert!(matches!(
             res1,
             Err(super::TensorPcsError::InvalidProof(
@@ -865,12 +952,17 @@ mod tests {
         ));
 
         // ADVERSARY: Truncate opened_rows array
-        let mut prover_ch2 = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
-        let (_, mut proof2) = pcs.open(&prover_data, &point, &mut prover_ch2);
-        proof2.opened_rows.pop();
+        let mut bad_proof_2 = proof.clone();
+        bad_proof_2.opened_rows.pop();
 
         let mut verifier_ch2 = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
-        let res2 = pcs.verify(&commitment, &point, &values, &proof2, &mut verifier_ch2);
+        let res2 = pcs.verify(
+            &commitment,
+            &point,
+            &values,
+            &bad_proof_2,
+            &mut verifier_ch2,
+        );
         assert!(matches!(
             res2,
             Err(super::TensorPcsError::InvalidProof(

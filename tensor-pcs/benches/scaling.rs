@@ -21,12 +21,31 @@ type MyCompress = CompressionFunctionFromHasher<MyHash, 2, 4>;
 type MyMmcs =
     MerkleTreeMmcs<[F; VECTOR_LEN], [u64; VECTOR_LEN], SerializingHasher<MyHash>, MyCompress, 2, 4>;
 
-const SCALING_BOUNDS: &[usize] = &[10, 14, 18, 20, 22, 24, 26, 28];
+fn get_breadth_test_dims() -> &'static [&'static [usize]] {
+    if cfg!(debug_assertions) {
+        &[&[12, 1, 10], &[14, 1]]
+    } else {
+        &[
+            &[12, 1, 10, 100],
+            &[14, 1, 10, 100],
+            &[16, 1, 10, 100],
+            &[18, 1, 10, 100],
+            &[20, 1, 10, 100],
+            &[22, 1, 10, 100],
+        ]
+    }
+}
 
-/// Test suite attempting to benchmark asymptotic performance Tensor PCS. Run with `--nocapture`
-/// TODO: This should probably be disabled (or refactored to make useful assertions).
-#[test]
-fn test_tensor_pcs_scaling_suite() {
+fn get_scaling_bounds() -> &'static [usize] {
+    if cfg!(debug_assertions) {
+        &[10, 14, 18]
+    } else {
+        &[10, 14, 18, 20, 22, 24, 26, 28, 30]
+    }
+}
+
+/// Asymptotic performance benchmark suite for Tensor PCS.
+pub fn main() {
     let hash = MyHash::new(KeccakF {});
     let compress = MyCompress::new(hash);
     let mmcs = MyMmcs::new(SerializingHasher::new(hash), compress, 0);
@@ -42,15 +61,13 @@ fn test_tensor_pcs_scaling_suite() {
 
 fn benchmark_breadth_scaling(mmcs: &MyMmcs) {
     println!("\n--- Breadth Scaling (varying log_n and m) ---");
-    for log_n in [12, 14, 16] {
+
+    for row in get_breadth_test_dims() {
+        let log_n = row[0];
+        let m_cases = &row[1..];
         let n = 1 << log_n;
-        // Only do large m=100 for small depths log_n=12,14 to save time
-        let m_cases = if log_n <= 14 {
-            vec![1, 10, 100]
-        } else {
-            vec![1, 10]
-        };
-        for m in m_cases {
+
+        for &m in m_cases {
             let code = IdentityCode { len: n };
             let pcs = TensorPcs::new(code, mmcs.clone(), 40);
             let evals = (0..m)
@@ -77,7 +94,7 @@ fn benchmark_breadth_scaling(mmcs: &MyMmcs) {
 
 fn benchmark_transposition_scaling() {
     println!("\n--- Transposition scaling (varying log_n) ---");
-    for &log_n in SCALING_BOUNDS {
+    for &log_n in get_scaling_bounds() {
         let n = 1 << log_n;
         let width = 1 << (log_n / 2);
         let height = 1 << (log_n - log_n / 2);
@@ -85,6 +102,7 @@ fn benchmark_transposition_scaling() {
 
         let t0 = Instant::now();
         let mut dummy = vec![F::ZERO; n];
+
         for r in 0..height {
             for c in 0..width {
                 dummy[c * height + r] = mat_sq.values[r * width + c];
@@ -105,7 +123,7 @@ fn benchmark_transposition_scaling() {
 
 fn benchmark_folding_round_simulation() {
     println!("\n--- Folding round simulation (Sumcheck Step) ---");
-    for &log_n in SCALING_BOUNDS {
+    for &log_n in get_scaling_bounds() {
         let n = 1 << log_n;
         let vals: Vec<F> = (0..n).map(|i| F::from_u32(i as u32)).collect();
 
@@ -130,7 +148,7 @@ fn benchmark_folding_round_simulation() {
 
 fn benchmark_hadamard_product_scaling() {
     println!("\n--- Hadamard Product Scaling (A * B) ---");
-    for &log_n in SCALING_BOUNDS {
+    for &log_n in get_scaling_bounds() {
         let n = 1 << log_n;
         let vals_a: Vec<F> = (0..n).map(|i| F::from_u32(i as u32)).collect();
         let vals_b: Vec<F> = (0..n).map(|i| F::from_u32(i as u32 + 7)).collect();
@@ -155,7 +173,7 @@ fn benchmark_hadamard_product_scaling() {
 
 fn benchmark_linearity_scaling(mmcs: &MyMmcs) {
     println!("\n--- Linearity scaling (depths up to 28 bits) ---");
-    for &log_n in SCALING_BOUNDS {
+    for &log_n in get_scaling_bounds() {
         // Cap to log_n <= 28 to prevent OOM kills on massive matrix allocations
         if log_n > 28 {
             continue;
