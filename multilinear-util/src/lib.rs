@@ -1,3 +1,4 @@
+//! Utility functions for multilinear polynomials and evaluations.
 #![no_std]
 
 extern crate alloc;

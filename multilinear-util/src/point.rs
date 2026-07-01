@@ -69,11 +69,11 @@ where
     /// Converts a univariate evaluation point into a multilinear one.
     ///
     /// Uses the bijection:
-    /// ```ignore
+    /// ```text
     /// f(x_1, ..., x_n) <-> g(y) := f(y^(2^(n-1)), ..., y^4, y^2, y)
     /// ```
     /// Meaning:
-    /// ```ignore
+    /// ```text
     /// x_1^i_1 * ... * x_n^i_n <-> y^i
     /// ```
     /// where `(i_1, ..., i_n)` is the **big-endian** binary decomposition of `i`.
@@ -96,7 +96,7 @@ where
     /// Computes the equality polynomial `eq(p, q)` for two points given as slices.
     ///
     /// The **equality polynomial** for two vectors is:
-    /// ```ignore
+    /// ```text
     /// eq(p, q) = ∏ (p_i * q_i + (1 - p_i) * (1 - q_i))
     /// ```
     ///
