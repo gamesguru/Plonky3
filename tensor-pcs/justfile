@@ -1,7 +1,7 @@
 # Justfile - Command runner for p3-tensor-pcs crate development
 
 # List available recipes
-_helpt:
+_help:
     @just --list
 
 # Fast check of this crate's compilation
@@ -9,7 +9,7 @@ check:
     cargo check
 
 # Format this crate's code using nightly fmt
-fmt:
+format:
     cargo +nightly fmt
 
 # Automatically fix Clippy warnings on nightly with pedantic and performance lints enabled
@@ -17,7 +17,7 @@ fix:
     cargo +nightly clippy --all-features --all-targets --allow-dirty --fix -- -W clippy::perf -W clippy::pedantic
 
 # Run Clippy checks across all targets of this crate on nightly with performance and pedantic lints
-clippy:
+lint:
     cargo +nightly clippy --all-features --all-targets -- -W clippy::perf -W clippy::pedantic --no-deps
 
 # Run all tests in this crate

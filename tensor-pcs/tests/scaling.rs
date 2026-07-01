@@ -21,11 +21,7 @@ type MyCompress = CompressionFunctionFromHasher<MyHash, 2, 4>;
 type MyMmcs =
     MerkleTreeMmcs<[F; VECTOR_LEN], [u64; VECTOR_LEN], SerializingHasher<MyHash>, MyCompress, 2, 4>;
 
-const SCALING_BOUNDS: &'static[usize] = &[10, 14, 18, 20, 22, 24, 26, 28];
-
-// fn get_scaling_bounds() -> &'static [usize] {
-//     &[10, 14, 18, 20, 22, 24, 26, 28, 30, 32]
-// }
+const SCALING_BOUNDS: &[usize] = &[10, 14, 18, 20, 22, 24, 26, 28];
 
 /// Test suite attempting to benchmark asymptotic performance Tensor PCS. Run with `--nocapture`
 /// TODO: This should probably be disabled (or refactored to make useful assertions).
@@ -66,11 +62,13 @@ fn benchmark_breadth_scaling(mmcs: &MyMmcs) {
                 &pcs, evals,
             );
             let dur = t0.elapsed();
+
             let label = format!("log_n = {log_n:2}, m = {m:3}");
             let (d_val, d_unit) = split_dur(dur);
             let (p_val, p_unit) = split_dur(dur / m as u32);
+            let dim_str = format!("{m}x{n} = {} cells", format_count(m * n));
             println!(
-                "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per poly)",
+                "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per poly) | Dim: {dim_str}",
                 label, "Commit", d_val, d_unit, p_val, p_unit
             );
         }
@@ -93,11 +91,13 @@ fn benchmark_transposition_scaling() {
             }
         }
         let dur = t0.elapsed();
+
         let label = format!("log_n = {log_n:2} (n = 2^{log_n})");
         let (d_val, d_unit) = split_dur(dur);
         let (p_val, p_unit) = split_dur(dur / n as u32);
+        let dim_str = format!("{height}x{width} = {} cells", format_count(n));
         println!(
-            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per element)",
+            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per element) | Dim: {dim_str}",
             label, "Transpose", d_val, d_unit, p_val, p_unit
         );
     }
@@ -116,11 +116,13 @@ fn benchmark_folding_round_simulation() {
             folded.push(vals[2 * i] + challenge * vals[2 * i + 1]);
         }
         let dur = t0.elapsed();
+
         let label = format!("log_n = {log_n:2} (n = 2^{log_n})");
         let (d_val, d_unit) = split_dur(dur);
         let (p_val, p_unit) = split_dur(dur / n as u32);
+        let dim_str = format!("{n} -> {} elements", n / 2);
         println!(
-            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per input)",
+            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per input) | Dim: {dim_str}",
             label, "Folding", d_val, d_unit, p_val, p_unit
         );
     }
@@ -139,11 +141,13 @@ fn benchmark_hadamard_product_scaling() {
             res.push(vals_a[i] * vals_b[i]);
         }
         let dur = t0.elapsed();
+
         let label = format!("log_n = {log_n:2} (n = 2^{log_n})");
         let (d_val, d_unit) = split_dur(dur);
         let (p_val, p_unit) = split_dur(dur / n as u32);
+        let dim_str = format!("{n} x {n} -> {n} cells");
         println!(
-            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per element)",
+            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per element) | Dim: {dim_str}",
             label, "Hadamard", d_val, d_unit, p_val, p_unit
         );
     }
@@ -189,11 +193,13 @@ fn benchmark_linearity_scaling(mmcs: &MyMmcs) {
 
         assert_eq!(encoded_sum, enc_sum_expected);
         let dur = t0.elapsed();
+
         let label = format!("log_n = {log_n:2} (n = 2^{log_n})");
         let (d_val, d_unit) = split_dur(dur);
         let (p_val, p_unit) = split_dur(dur / n as u32);
+        let dim_str = format!("{n}x1 = {n} cells");
         println!(
-            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per row)",
+            "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per row) | Dim: {dim_str}",
             label, "Linearity", d_val, d_unit, p_val, p_unit
         );
     }
@@ -209,5 +215,35 @@ fn split_dur(d: std::time::Duration) -> (f64, &'static str) {
         (ns / 1_000_000.0, "ms")
     } else {
         (ns / 1_000_000_000.0, "s")
+    }
+}
+
+fn format_count(count: usize) -> String {
+    if count < 1000 {
+        format!("{count}")
+    } else if count < 1_000_000 {
+        let k = count / 1000;
+        let rem = (count % 1000) / 100;
+        if rem > 0 {
+            format!("{k}.{rem}k")
+        } else {
+            format!("{k}k")
+        }
+    } else if count < 1_000_000_000 {
+        let m = count / 1_000_000;
+        let rem = (count % 1_000_000) / 100_000;
+        if rem > 0 {
+            format!("{m}.{rem}M")
+        } else {
+            format!("{m}M")
+        }
+    } else {
+        let b = count / 1_000_000_000;
+        let rem = (count % 1_000_000_000) / 100_000_000;
+        if rem > 0 {
+            format!("{b}.{rem}B")
+        } else {
+            format!("{b}B")
+        }
     }
 }
