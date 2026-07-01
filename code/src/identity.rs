@@ -74,5 +74,9 @@ mod tests {
             <IdentityCode as Code<F, In>>::codeword_len(&identity_code),
             CODE_LEN
         );
+        assert_eq!(
+            <IdentityCode as SystematicCode<F, In>>::parity_len(&identity_code),
+            0
+        );
     }
 }
