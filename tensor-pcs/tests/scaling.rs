@@ -152,8 +152,12 @@ fn benchmark_hadamard_product_scaling() {
 }
 
 fn benchmark_linearity_scaling(mmcs: &MyMmcs) {
-    println!("\n--- Linearity scaling (depths up to 30 bits) ---");
+    println!("\n--- Linearity scaling (depths up to 28 bits) ---");
     for &log_n in get_scaling_bounds() {
+        // Cap to log_n <= 28 to prevent OOM kills on massive matrix allocations
+        if log_n > 28 {
+            continue;
+        }
         let n = 1 << log_n;
         let code = IdentityCode { len: n };
         let pcs = TensorPcs::new(code, mmcs.clone(), 40);
