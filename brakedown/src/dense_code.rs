@@ -46,13 +46,16 @@ where
         );
 
         let out_width = messages.width();
-        let parity_height = self.codeword_len - self.message_len;
+        let parity_height = self
+            .codeword_len
+            .checked_sub(self.message_len)
+            .expect("codeword_len must be >= message_len");
         let mut parity_values = vec![F::ZERO; parity_height * out_width];
 
         // Perform dense matrix multiplication: Parity = G * N_MESSAGES
         for r in 0..parity_height {
             for i in 0..self.message_len {
-                let g_val = self.generator.values[r * self.message_len + i];
+                let g_val = self.generator.values[r * self.generator.width() + i];
                 // Inner loop over columns, stay locally for cache
                 for c in 0..out_width {
                     let msg_val = messages.get(i, c).unwrap_or_default();
