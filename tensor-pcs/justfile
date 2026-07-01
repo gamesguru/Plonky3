@@ -27,3 +27,7 @@ test:
 # Run the asymptotic scaling benchmark suite for this crate
 bench:
     cargo test --release --test scaling -- --nocapture
+
+# Run code coverage analysis using llvm-cov for this crate only
+cov:
+    cargo llvm-cov --all-features --all-targets
