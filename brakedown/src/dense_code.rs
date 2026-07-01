@@ -58,7 +58,7 @@ where
                 let g_val = self.generator.values[r * self.generator.width() + i];
                 // Inner loop over columns, stay locally for cache
                 for c in 0..out_width {
-                    let msg_val = messages.get(i, c).unwrap_or_default();
+                    let msg_val = messages.get(i, c).expect("index within validated bounds");
                     parity_values[r * out_width + c] += g_val * msg_val;
                 }
             }
