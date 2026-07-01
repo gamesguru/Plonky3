@@ -13,10 +13,10 @@ use rand::rngs::SmallRng;
 const BATCH_SIZE: usize = 1 << 12;
 
 fn bench_encode(c: &mut Criterion) {
-    encode::<Mersenne31, 20>(c);
+    encode::<Mersenne31>(c);
 }
 
-fn encode<F: Field, const ROW_WEIGHT: usize>(c: &mut Criterion)
+fn encode<F: Field>(c: &mut Criterion)
 where
     StandardUniform: Distribution<F>,
 {
@@ -30,10 +30,10 @@ where
         let code = fast_registry::<F, RowMajorMatrix<F>>();
 
         let mut messages = RowMajorMatrix::rand(&mut rng, n, BATCH_SIZE);
+        messages.values.truncate(n * BATCH_SIZE);
 
         group.bench_with_input(BenchmarkId::from_parameter(n), &code, |b, code| {
             b.iter(|| {
-                messages.values.truncate(n * BATCH_SIZE);
                 code.encode_batch(messages.clone());
             });
         });
