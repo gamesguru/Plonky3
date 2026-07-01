@@ -118,6 +118,7 @@ impl<T: Clone + Default + Send + Sync> Matrix<T> for CsrMatrix<T> {
         self.row_indices.len() - 1
     }
 
+    #[allow(unsafe_code)]
     unsafe fn row_unchecked(
         &self,
         r: usize,

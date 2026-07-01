@@ -18,6 +18,7 @@ pub struct DenseLinearCode<F: Field> {
 }
 
 impl<F: Field> DenseLinearCode<F> {
+    #[must_use]
     pub const fn new(
         message_len: usize,
         codeword_len: usize,

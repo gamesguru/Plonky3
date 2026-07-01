@@ -22,12 +22,14 @@ where
     Out: Matrix<F>,
 {
     // Sort ascending by message length
+    #[must_use]
     pub fn new(mut codes: Vec<Box<dyn SystematicLinearCode<F, In, Out = Out>>>) -> Self {
         codes.sort_by_key(|c| c.message_len());
         Self { codes }
     }
 
     // Exact match for message length
+    #[must_use]
     pub fn for_message_len(
         &self,
         message_len: usize,
@@ -37,7 +39,7 @@ where
                 return &**c;
             }
         }
-        panic!("No code found for message length {}", message_len);
+        panic!("No code found for message length {message_len}");
     }
 }
 
