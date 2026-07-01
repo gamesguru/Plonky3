@@ -73,7 +73,7 @@ fn benchmark_breadth_scaling(mmcs: &MyMmcs) {
 
 fn benchmark_transposition_scaling() {
     println!("\n--- Transposition scaling (varying log_n) ---");
-    for log_n in [10, 14, 18, 20, 22, 24] {
+    for log_n in [10, 14, 18, 20, 22, 24, 26, 28, 30] {
         let n = 1 << log_n;
         let width = 1 << (log_n / 2);
         let height = 1 << (log_n - log_n / 2);
@@ -99,7 +99,7 @@ fn benchmark_transposition_scaling() {
 
 fn benchmark_folding_round_simulation() {
     println!("\n--- Folding round simulation (Sumcheck Step) ---");
-    for log_n in [10, 14, 18, 20, 22, 24] {
+    for log_n in [10, 14, 18, 20, 22, 24, 26, 28, 30] {
         let n = 1 << log_n;
         let vals: Vec<F> = (0..n).map(|i| F::from_u32(i as u32)).collect();
 
@@ -122,7 +122,7 @@ fn benchmark_folding_round_simulation() {
 
 fn benchmark_hadamard_product_scaling() {
     println!("\n--- Hadamard Product Scaling (A * B) ---");
-    for log_n in [10, 14, 18, 20, 22, 24] {
+    for log_n in [10, 14, 18, 20, 22, 24, 26, 28, 30] {
         let n = 1 << log_n;
         let vals_a: Vec<F> = (0..n).map(|i| F::from_u32(i as u32)).collect();
         let vals_b: Vec<F> = (0..n).map(|i| F::from_u32(i as u32 + 7)).collect();
@@ -144,8 +144,8 @@ fn benchmark_hadamard_product_scaling() {
 }
 
 fn benchmark_linearity_scaling(mmcs: &MyMmcs) {
-    println!("\n--- Linearity scaling (depths up to 24 bits) ---");
-    for log_n in [10, 14, 18, 20, 22, 24] {
+    println!("\n--- Linearity scaling (depths up to 30 bits) ---");
+    for log_n in [10, 14, 18, 20, 22, 24, 26, 28, 30] {
         let n = 1 << log_n;
         let code = IdentityCode { len: n };
         let pcs = TensorPcs::new(code, mmcs.clone(), 40);
