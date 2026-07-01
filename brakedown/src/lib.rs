@@ -1,6 +1,7 @@
 //! This crate contains an implementation of the Spielman-based code described in the Brakedown paper.
 
 #![no_std]
+#![allow(clippy::arithmetic_side_effects)]
 
 extern crate alloc;
 

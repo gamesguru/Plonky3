@@ -1,3 +1,5 @@
+#![allow(clippy::arithmetic_side_effects)]
+
 use std::any::type_name;
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};

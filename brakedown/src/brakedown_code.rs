@@ -122,6 +122,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
     use p3_field::PrimeCharacteristicRing;
     use p3_mersenne_31::Mersenne31;
     use rand::SeedableRng;
@@ -191,5 +193,44 @@ mod tests {
             <BrakedownCode<F, _> as Code<F, Mat>>::message_len(&brakedown)
                 + <BrakedownCode<F, _> as SystematicCode<F, Mat>>::parity_len(&brakedown)
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "A, B dimensions don't match")]
+    fn test_brakedown_message_mismatch_panic() {
+        let brakedown = brakedown!(
+            237,
+            29,
+            11,
+            41,
+            60,
+            15,
+            brakedown_to_dense!(29, 4, 0, 5, 7, 0)
+        );
+        // message_len of brakedown is 237, so let's pass a matrix of height 100
+        let wrong_height_msg = RowMajorMatrix::new(vec![F::ZERO; 100 * 2], 2);
+        let _ = brakedown.encode_batch(wrong_height_msg);
+    }
+
+    #[test]
+    #[should_panic(expected = "Message height mismatch")]
+    fn test_dense_code_message_mismatch_panic() {
+        use crate::DenseLinearCode;
+        let generator = RowMajorMatrix::new(vec![F::ZERO; 10 * 10], 10);
+        let dense_code = DenseLinearCode::new(10, 20, generator);
+        // message_len is 10, so let's pass a matrix of height 5
+        let wrong_height_msg = RowMajorMatrix::new(vec![F::ZERO; 5 * 2], 2);
+        let _ = dense_code.encode_batch(wrong_height_msg);
+    }
+
+    #[test]
+    #[should_panic(expected = "codeword_len must be >= message_len")]
+    fn test_dense_code_invalid_codeword_len() {
+        use crate::DenseLinearCode;
+        let generator = RowMajorMatrix::new(vec![F::ZERO; 10 * 10], 10);
+        // codeword_len (5) is less than message_len (10)
+        let dense_code = DenseLinearCode::new(10, 5, generator);
+        let msg = RowMajorMatrix::new(vec![F::ZERO; 10 * 2], 2);
+        let _ = dense_code.encode_batch(msg);
     }
 }
