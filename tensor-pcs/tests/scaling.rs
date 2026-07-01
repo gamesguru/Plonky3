@@ -1,3 +1,9 @@
+#![allow(
+    clippy::arithmetic_side_effects,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss
+)]
+
 use std::time::Instant;
 
 use p3_baby_bear::BabyBear;
@@ -34,13 +40,13 @@ fn test_tensor_pcs_scaling_suite() {
 
 fn benchmark_breadth_scaling(mmcs: &MyMmcs) {
     println!("\n--- Breadth Scaling (varying log_n and m) ---");
-    for log_n in [12_usize, 14, 16] {
-        let n = 1_usize.checked_shl(u32::try_from(log_n).unwrap()).unwrap();
+    for log_n in [12, 14, 16] {
+        let n = 1 << log_n;
         // Only do large m=100 for small depths log_n=12,14 to save time
         let m_cases = if log_n <= 14 {
-            vec![1_usize, 10, 100]
+            vec![1, 10, 100]
         } else {
-            vec![1_usize, 10]
+            vec![1, 10]
         };
         for m in m_cases {
             let code = IdentityCode { len: n };
@@ -56,7 +62,7 @@ fn benchmark_breadth_scaling(mmcs: &MyMmcs) {
             let dur = t0.elapsed();
             let label = format!("log_n = {log_n:2}, m = {m:3}");
             let (d_val, d_unit) = split_dur(dur);
-            let (p_val, p_unit) = split_dur(dur.checked_div(u32::try_from(m).unwrap()).unwrap());
+            let (p_val, p_unit) = split_dur(dur / m as u32);
             println!(
                 "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per poly)",
                 label, "Commit", d_val, d_unit, p_val, p_unit
@@ -67,31 +73,23 @@ fn benchmark_breadth_scaling(mmcs: &MyMmcs) {
 
 fn benchmark_transposition_scaling() {
     println!("\n--- Transposition scaling (varying log_n) ---");
-    for log_n in [10_usize, 14, 18, 20, 22, 24] {
-        let n = 1_usize.checked_shl(u32::try_from(log_n).unwrap()).unwrap();
-        let log_n_half = log_n.checked_div(2).unwrap();
-        let width = 1_usize
-            .checked_shl(u32::try_from(log_n_half).unwrap())
-            .unwrap();
-        let log_n_diff = log_n.checked_sub(log_n_half).unwrap();
-        let height = 1_usize
-            .checked_shl(u32::try_from(log_n_diff).unwrap())
-            .unwrap();
+    for log_n in [10, 14, 18, 20, 22, 24] {
+        let n = 1 << log_n;
+        let width = 1 << (log_n / 2);
+        let height = 1 << (log_n - log_n / 2);
         let mat_sq = RowMajorMatrix::new(vec![F::ZERO; n], width);
 
         let t0 = Instant::now();
         let mut dummy = vec![F::ZERO; n];
         for r in 0..height {
             for c in 0..width {
-                let target_idx = c.checked_mul(height).unwrap().checked_add(r).unwrap();
-                let source_idx = r.checked_mul(width).unwrap().checked_add(c).unwrap();
-                dummy[target_idx] = mat_sq.values[source_idx];
+                dummy[c * height + r] = mat_sq.values[r * width + c];
             }
         }
         let dur = t0.elapsed();
         let label = format!("log_n = {log_n:2} (n = 2^{log_n})");
         let (d_val, d_unit) = split_dur(dur);
-        let (p_val, p_unit) = split_dur(dur.checked_div(u32::try_from(n).unwrap()).unwrap());
+        let (p_val, p_unit) = split_dur(dur / n as u32);
         println!(
             "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per element)",
             label, "Transpose", d_val, d_unit, p_val, p_unit
@@ -101,26 +99,20 @@ fn benchmark_transposition_scaling() {
 
 fn benchmark_folding_round_simulation() {
     println!("\n--- Folding round simulation (Sumcheck Step) ---");
-    for log_n in [10_usize, 14, 18, 20, 22, 24] {
-        let n = 1_usize.checked_shl(u32::try_from(log_n).unwrap()).unwrap();
-        let vals: Vec<F> = (0..n)
-            .map(|i| F::from_u32(u32::try_from(i).unwrap()))
-            .collect();
+    for log_n in [10, 14, 18, 20, 22, 24] {
+        let n = 1 << log_n;
+        let vals: Vec<F> = (0..n).map(|i| F::from_u32(i as u32)).collect();
 
         let t0 = Instant::now();
         let challenge = F::from_u32(12345);
-        let mut folded = Vec::with_capacity(n.checked_div(2).unwrap());
-        for i in 0..n.checked_div(2).unwrap() {
-            let idx_0 = 2_usize.checked_mul(i).unwrap();
-            let idx_1 = idx_0.checked_add(1).unwrap();
-            let term = <F as core::ops::Mul<F>>::mul(challenge, vals[idx_1]);
-            let sum = <F as core::ops::Add<F>>::add(vals[idx_0], term);
-            folded.push(sum);
+        let mut folded = Vec::with_capacity(n / 2);
+        for i in 0..(n / 2) {
+            folded.push(vals[2 * i] + challenge * vals[2 * i + 1]);
         }
         let dur = t0.elapsed();
         let label = format!("log_n = {log_n:2} (n = 2^{log_n})");
         let (d_val, d_unit) = split_dur(dur);
-        let (p_val, p_unit) = split_dur(dur.checked_div(u32::try_from(n).unwrap()).unwrap());
+        let (p_val, p_unit) = split_dur(dur / n as u32);
         println!(
             "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per input)",
             label, "Folding", d_val, d_unit, p_val, p_unit
@@ -130,24 +122,20 @@ fn benchmark_folding_round_simulation() {
 
 fn benchmark_hadamard_product_scaling() {
     println!("\n--- Hadamard Product Scaling (A * B) ---");
-    for log_n in [10_usize, 14, 18, 20, 22, 24] {
-        let n = 1_usize.checked_shl(u32::try_from(log_n).unwrap()).unwrap();
-        let vals_a: Vec<F> = (0..n)
-            .map(|i| F::from_u32(u32::try_from(i).unwrap()))
-            .collect();
-        let vals_b: Vec<F> = (0..n)
-            .map(|i| F::from_u32(u32::try_from(i).unwrap().checked_add(7).unwrap()))
-            .collect();
+    for log_n in [10, 14, 18, 20, 22, 24] {
+        let n = 1 << log_n;
+        let vals_a: Vec<F> = (0..n).map(|i| F::from_u32(i as u32)).collect();
+        let vals_b: Vec<F> = (0..n).map(|i| F::from_u32(i as u32 + 7)).collect();
 
         let t0 = Instant::now();
         let mut res = Vec::with_capacity(n);
         for i in 0..n {
-            res.push(<F as core::ops::Mul<F>>::mul(vals_a[i], vals_b[i]));
+            res.push(vals_a[i] * vals_b[i]);
         }
         let dur = t0.elapsed();
         let label = format!("log_n = {log_n:2} (n = 2^{log_n})");
         let (d_val, d_unit) = split_dur(dur);
-        let (p_val, p_unit) = split_dur(dur.checked_div(u32::try_from(n).unwrap()).unwrap());
+        let (p_val, p_unit) = split_dur(dur / n as u32);
         println!(
             "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per element)",
             label, "Hadamard", d_val, d_unit, p_val, p_unit
@@ -157,23 +145,13 @@ fn benchmark_hadamard_product_scaling() {
 
 fn benchmark_linearity_scaling(mmcs: &MyMmcs) {
     println!("\n--- Linearity scaling (depths up to 24 bits) ---");
-    for log_n in [10_usize, 14, 18, 20, 22, 24] {
-        let n = 1_usize.checked_shl(u32::try_from(log_n).unwrap()).unwrap();
+    for log_n in [10, 14, 18, 20, 22, 24] {
+        let n = 1 << log_n;
         let code = IdentityCode { len: n };
         let pcs = TensorPcs::new(code, mmcs.clone(), 40);
 
-        let mat_a = RowMajorMatrix::new(
-            (0..n)
-                .map(|i| F::from_u32(u32::try_from(i).unwrap()))
-                .collect(),
-            1,
-        );
-        let mat_b = RowMajorMatrix::new(
-            (0..n)
-                .map(|i| F::from_u32(u32::try_from(i).unwrap().checked_add(1000).unwrap()))
-                .collect(),
-            1,
-        );
+        let mat_a = RowMajorMatrix::new((0..n).map(|i| F::from_u32(i as u32)).collect(), 1);
+        let mat_b = RowMajorMatrix::new((0..n).map(|i| F::from_u32(i as u32 + 1000)).collect(), 1);
 
         let t0 = Instant::now();
         let mat_sum = RowMajorMatrix::new(
@@ -181,7 +159,7 @@ fn benchmark_linearity_scaling(mmcs: &MyMmcs) {
                 .values
                 .iter()
                 .zip(mat_b.values.iter())
-                .map(|(a, b)| <F as core::ops::Add<F>>::add(*a, *b))
+                .map(|(a, b)| *a + *b)
                 .collect(),
             1,
         );
@@ -194,7 +172,7 @@ fn benchmark_linearity_scaling(mmcs: &MyMmcs) {
                 .values
                 .iter()
                 .zip(enc_b.values.iter())
-                .map(|(a, b)| <F as core::ops::Add<F>>::add(*a, *b))
+                .map(|(a, b)| *a + *b)
                 .collect(),
             1,
         );
@@ -203,7 +181,7 @@ fn benchmark_linearity_scaling(mmcs: &MyMmcs) {
         let dur = t0.elapsed();
         let label = format!("log_n = {log_n:2} (n = 2^{log_n})");
         let (d_val, d_unit) = split_dur(dur);
-        let (p_val, p_unit) = split_dur(dur.checked_div(u32::try_from(n).unwrap()).unwrap());
+        let (p_val, p_unit) = split_dur(dur / n as u32);
         println!(
             "  {:22} | {:>9}: {:>8.2}{:<2} ({:>8.2}{:<2} per row)",
             label, "Linearity", d_val, d_unit, p_val, p_unit

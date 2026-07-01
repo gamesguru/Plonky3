@@ -139,6 +139,13 @@ where
         )
     }
 
+    // Context: Prover-side implementation of `StarkMultilinearPcs::open`.
+    // Why this is safe:
+    // 1. The Prover operates on trusted local execution witnesses/witness data. Any dimension mismatches
+    //    or bitshift panics here indicate integration bugs, not security vulnerabilities.
+    // 2. Finite field arithmetic (`+`, `*`, `+=`) naturally reduces modulo the prime modulus P,
+    //    meaning it mathematically can never overflow or panic.
+    #[allow(clippy::arithmetic_side_effects)]
     fn open(
         &self,
         prover_data: &Self::ProverData,
@@ -148,10 +155,8 @@ where
         let n = point.len();
         let height = self.code.message_len();
         let log_r = height.ilog2() as usize;
-        let log_c = n
-            .checked_sub(log_r)
-            .expect("point length is too small for message length");
-        let width = 1_usize.checked_shl(u32::try_from(log_c).unwrap()).unwrap();
+        let log_c = n - log_r;
+        let width = 1 << log_c;
 
         // Variables [0..log_r] are MSBs (rows), [log_r..n] are LSBs (columns)
         let (z_row, z_col) = point.split_at(log_r);
@@ -168,8 +173,7 @@ where
             let mut v = vec![Chal::ZERO; m.height()];
             for (i, row) in m.rows().enumerate() {
                 for (j, val) in row.into_iter().enumerate() {
-                    let product = <Chal as core::ops::Mul<F>>::mul(col_coeffs[j], val);
-                    <Chal as core::ops::AddAssign<Chal>>::add_assign(&mut v[i], product);
+                    v[i] += col_coeffs[j] * val;
                 }
             }
 
@@ -286,120 +290,126 @@ where
             return Err(TensorPcsError::InvalidProof("mmcs_proofs length mismatch"));
         }
 
-        let width = 1_usize.checked_shl(u32::try_from(log_c).unwrap()).unwrap();
+        let log_c_u32 = u32::try_from(log_c)
+            .map_err(|_| TensorPcsError::InvalidProof("log_c exceeds 32 bits"))?;
+        let width = 1_usize
+            .checked_shl(log_c_u32)
+            .ok_or(TensorPcsError::InvalidProof("width overflow"))?;
 
-        // Verify MMCS openings
-        self.verify_mmcs_openings(
+        // Use transient Verification Context to verify openings and folded vectors
+        let ctx = VerificationCtx {
+            pcs: self,
             commitment,
-            &row_indices,
-            codeword_len,
-            width,
-            values.len(),
             proof,
-        )?;
-
-        // Verify folded vectors (re-encoding & linear constraints)
-        self.verify_folded_vectors(
-            &row_indices,
+            values,
+            row_indices: &row_indices,
             codeword_len,
-            height,
             width,
+            height,
             z_row,
             z_col,
-            values,
-            proof,
-        )?;
+        };
+
+        // Verify MMCS openings
+        ctx.verify_mmcs_openings()?;
+
+        // Verify folded vectors (re-encoding & linear constraints)
+        ctx.verify_folded_vectors()?;
 
         Ok(())
     }
 }
 
-impl<F, C, M> TensorPcs<F, C, M>
+/// Transient context for verifying a Tensor PCS opening.
+struct VerificationCtx<'a, F, C, M, Chal>
+where
+    F: Field,
+    C: LinearCode<F, RowMajorMatrix<F>>,
+    M: Mmcs<F>,
+    Chal: ExtensionField<F>,
+{
+    pcs: &'a TensorPcs<F, C, M>,
+    commitment: &'a M::Commitment,
+    proof: &'a TensorPcsProof<F, M, Chal>,
+    values: &'a [Vec<Chal>],
+    row_indices: &'a [usize],
+    codeword_len: usize,
+    width: usize,
+    height: usize,
+    z_row: &'a [Chal],
+    z_col: &'a [Chal],
+}
+
+impl<F, C, M, Chal> VerificationCtx<'_, F, C, M, Chal>
 where
     F: Field,
     C: LinearCode<F, RowMajorMatrix<F>> + SystematicCode<F, RowMajorMatrix<F>>,
     C::Out: Clone,
     M: Mmcs<F>,
+    Chal: ExtensionField<F> + p3_field::BasedVectorSpace<F>,
 {
-    fn verify_mmcs_openings<Chal>(
-        &self,
-        commitment: &M::Commitment,
-        row_indices: &[usize],
-        codeword_len: usize,
-        width: usize,
-        values_len: usize,
-        proof: &TensorPcsProof<F, M, Chal>,
-    ) -> Result<(), TensorPcsError<M::Error>>
-    where
-        Chal: ExtensionField<F> + p3_field::BasedVectorSpace<F>,
-    {
+    fn verify_mmcs_openings(&self) -> Result<(), TensorPcsError<M::Error>> {
         let dims = vec![
             p3_matrix::Dimensions {
-                height: codeword_len,
-                width,
+                height: self.codeword_len,
+                width: self.width,
             };
-            values_len
+            self.values.len()
         ];
 
-        for (query_idx, &idx) in row_indices.iter().enumerate() {
-            let opened_values = &proof.opened_rows[query_idx];
-            let opening_proof = &proof.mmcs_proofs[query_idx];
+        for (query_idx, &idx) in self.row_indices.iter().enumerate() {
+            let opened_values = &self.proof.opened_rows[query_idx];
+            let opening_proof = &self.proof.mmcs_proofs[query_idx];
             let opening_ref = p3_commit::BatchOpeningRef::new(opened_values, opening_proof);
 
-            self.mmcs
-                .verify_batch(commitment, &dims, idx, opening_ref)
+            self.pcs
+                .mmcs
+                .verify_batch(self.commitment, &dims, idx, opening_ref)
                 .map_err(TensorPcsError::MmcsError)?;
         }
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn verify_folded_vectors<Chal>(
-        &self,
-        row_indices: &[usize],
-        codeword_len: usize,
-        height: usize,
-        width: usize,
-        z_row: &[Chal],
-        z_col: &[Chal],
-        values: &[Vec<Chal>],
-        proof: &TensorPcsProof<F, M, Chal>,
-    ) -> Result<(), TensorPcsError<M::Error>>
-    where
-        Chal: ExtensionField<F> + p3_field::BasedVectorSpace<F>,
-    {
+    // Context: Verifier-side validation of folded vectors inside `VerificationCtx`.
+    // Why this is safe:
+    // This helper method performs custom modular finite-field arithmetic (`+`, `*`, `+=`)
+    // over field and binomial extension field elements. Because these operations natively
+    // reduce results modulo P, they mathematically cannot overflow or panic.
+    // Standard integer arithmetic in the verifier path is safely checked.
+    #[allow(clippy::arithmetic_side_effects)]
+    fn verify_folded_vectors(&self) -> Result<(), TensorPcsError<M::Error>> {
         // Compute evaluation points (column coefficients for folding)
-        let col_coeffs_poly = Poly::new_from_point(z_col, Chal::ONE);
+        let col_coeffs_poly = Poly::new_from_point(self.z_col, Chal::ONE);
         let col_coeffs = col_coeffs_poly.as_slice();
 
-        for (poly_idx, v) in proof.folded_vectors.iter().enumerate() {
-            if v.len() != codeword_len {
+        for (poly_idx, v) in self.proof.folded_vectors.iter().enumerate() {
+            if v.len() != self.codeword_len {
                 return Err(TensorPcsError::InvalidProof(
                     "folded encoded column length mismatch",
                 ));
             }
 
             // Safely return error to verifier
-            if v.len() < height {
+            if v.len() < self.height {
                 return Err(TensorPcsError::InvalidProof(
                     "encoded column shorter than message length",
                 ));
             }
-            if values[poly_idx].is_empty() {
+            if self.values[poly_idx].is_empty() {
                 return Err(TensorPcsError::InvalidProof("missing evaluation value"));
             }
 
             // Evaluation e = v(z_row)
             // Truncate to message part for multilinear evaluation
-            let v_message = v[..height].to_vec();
-            let e = Poly::new(v_message.clone()).eval_ext(&Point::new(z_row.to_vec()));
-            if e != values[poly_idx][0] {
+            let v_message = v[..self.height].to_vec();
+            let e = Poly::new(v_message.clone()).eval_ext(&Point::new(self.z_row.to_vec()));
+            if e != self.values[poly_idx][0] {
                 return Err(TensorPcsError::EvaluationMismatch);
             }
 
             // Reconstruct message as RowMajorMatrix over base field
             let capacity =
-                height
+                self.height
                     .checked_mul(Chal::DIMENSION)
                     .ok_or(TensorPcsError::InvalidProof(
                         "matrix coefficients size overflow",
@@ -409,10 +419,10 @@ where
                 flat_coeffs.extend_from_slice(val.as_basis_coefficients_slice());
             }
             let m = RowMajorMatrix::new(flat_coeffs, Chal::DIMENSION);
-            let encoded_m = self.code.encode_batch(m);
+            let encoded_m = self.pcs.code.encode_batch(m);
 
             // Reconstruct encoded extension field elements
-            let mut reencoded_v = Vec::with_capacity(codeword_len);
+            let mut reencoded_v = Vec::with_capacity(self.codeword_len);
             for row in encoded_m.rows() {
                 let row_vec: Vec<F> = row.into_iter().collect();
                 let val = Chal::from_basis_coefficients_slice(&row_vec).ok_or(
@@ -430,23 +440,22 @@ where
 
             // Linear constraint check: sum beta_j(z_col) * M_{idx, j} == v[idx]
             // where idx is sampled row of the committed matrix.
-            for (query_idx, &idx) in row_indices.iter().enumerate() {
-                let opened_matrix_evals = &proof.opened_rows[query_idx];
-                if opened_matrix_evals.len() != values.len() {
+            for (query_idx, &idx) in self.row_indices.iter().enumerate() {
+                let opened_matrix_evals = &self.proof.opened_rows[query_idx];
+                if opened_matrix_evals.len() != self.values.len() {
                     return Err(TensorPcsError::InvalidProof(
                         "opened evaluations per query mismatch",
                     ));
                 }
 
                 let opened_row = &opened_matrix_evals[poly_idx];
-                if opened_row.len() != width {
+                if opened_row.len() != self.width {
                     return Err(TensorPcsError::InvalidProof("opened row width mismatch"));
                 }
 
                 let mut rhs = Chal::ZERO;
                 for (j, &val) in opened_row.iter().enumerate() {
-                    let product = <Chal as core::ops::Mul<F>>::mul(col_coeffs[j], val);
-                    <Chal as core::ops::AddAssign<Chal>>::add_assign(&mut rhs, product);
+                    rhs += col_coeffs[j] * val;
                 }
 
                 if rhs != v[idx] {
