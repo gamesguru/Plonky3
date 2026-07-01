@@ -29,7 +29,6 @@ p3-util.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-
 [dev-dependencies]
 criterion.workspace = true
 p3-baby-bear = { path = "../baby-bear" }

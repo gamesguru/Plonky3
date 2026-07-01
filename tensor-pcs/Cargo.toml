@@ -9,6 +9,10 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = ["std"]
+std = []
+
 [dependencies]
 p3-challenger.workspace = true
 p3-code.workspace = true
@@ -28,10 +32,6 @@ p3-merkle-tree = { path = "../merkle-tree" }
 p3-symmetric = { path = "../symmetric" }
 rand = { workspace = true }
 rand_chacha = "0.10"
-
-[features]
-default = ["std"]
-std = []
 
 [lints.rust]
 unsafe_code = "forbid"
