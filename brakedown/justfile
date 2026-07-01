@@ -32,3 +32,8 @@ bench:
 # Run code coverage analysis using llvm-cov for this crate only
 cov:
     cargo llvm-cov --all-features --all-targets
+
+# Build and test documentation for this crate
+docs:
+    cargo doc --no-deps --all-features
+    cargo test --doc --all-features
