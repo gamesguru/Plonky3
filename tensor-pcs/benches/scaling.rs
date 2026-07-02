@@ -184,7 +184,10 @@ fn benchmark_hadamard_product_scaling() {
 fn benchmark_linearity_scaling(mmcs: &MyMmcs) {
     println!("\n--- Linearity scaling (depths up to 28 bits) ---");
     for &log_n in get_scaling_bounds() {
-        // Cap to log_n <= 28 to prevent OOM kills on massive matrix allocations
+        // TODO: Wire Tensor PCS into upstream's AirZerocheck::prove orchestrator (multi-stark/src/zerocheck.rs)
+        // to fold columns dynamically in place using a `next_tail: Vec<EF>` boundary state (multi-stark/src/rounds.rs)
+        // instead of allocating completely new matrices (like `folded_shifted_trace`) and manually offsetting.
+        // This will cut the memory/cache footprint in half, allowing us to safely lift this 28-bit scaling cap.
         if log_n > 28 {
             continue;
         }
