@@ -131,17 +131,6 @@ where
                 );
             }
 
-            assert!(
-                e.width().is_power_of_two(),
-                "Matrix width must be a power of two"
-            );
-            if let Some(first) = evals.first() {
-                assert_eq!(
-                    e.width(),
-                    first.width(),
-                    "All matrices in a batch must have the same width"
-                );
-            }
             let encoded = self.code.encode_batch(e.clone());
             // encoded is (codeword_len x width). Each column is a codeword.
             // We commit to its rows via MMCS.
@@ -251,8 +240,8 @@ where
         }
 
         // Open sampled rows of the encoded matrices
-        let mut opened_rows = Vec::with_capacity(self.num_queries);
-        let mut proofs = Vec::with_capacity(self.num_queries);
+        let mut opened_rows = Vec::with_capacity(num_queries);
+        let mut proofs = Vec::with_capacity(num_queries);
         for &idx in &row_indices {
             let opening = self.mmcs.open_batch(idx, &prover_data.mmcs_data);
             // opened_values is Vec<Vec<F>> where inner Vec is the row of width W
