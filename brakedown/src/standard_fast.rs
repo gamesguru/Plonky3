@@ -1,6 +1,7 @@
 #![allow(clippy::arithmetic_side_effects)]
 
 use alloc::boxed::Box;
+use alloc::vec;
 
 use p3_code::{LinearCodeFamily, SLCodeRegistry};
 use p3_field::Field;
