@@ -16,6 +16,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::StarkMultilinearPcs;
 
+/// A Tensor-based Polynomial Commitment Scheme (PCS).
+///
+/// This PCS commits to a multilinear polynomial by treating its evaluations as a matrix,
+/// encoding the rows and columns via a linear code, and committing to the rows using an MMCS.
 #[derive(Clone, Debug)]
 pub struct TensorPcs<F, C, M>
 where
@@ -23,8 +27,11 @@ where
     C: LinearCode<F, RowMajorMatrix<F>>,
     M: Mmcs<F>,
 {
+    /// The linear code used to encode the evaluations.
     pub code: C,
+    /// The Multi-field Multi-column Commitment Scheme (MMCS) for committing to rows.
     pub mmcs: M,
+    /// The number of security queries.
     pub num_queries: usize,
     _marker: PhantomData<F>,
 }
@@ -35,6 +42,7 @@ where
     C: LinearCode<F, RowMajorMatrix<F>>,
     M: Mmcs<F>,
 {
+    /// Creates a new `TensorPcs` instance with the specified linear code, MMCS, and query count.
     pub const fn new(code: C, mmcs: M, num_queries: usize) -> Self {
         Self {
             code,
@@ -52,6 +60,7 @@ pub struct TensorPcsProverData<F: Field, M: Mmcs<F>, Mat: Matrix<F>> {
     pub mmcs_data: M::ProverData<Mat>,
 }
 
+/// A proof of correct evaluation of a multilinear polynomial committed via `TensorPcs`.
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(bound(
     serialize = "F: Serialize, M::Proof: Serialize, Chal: Serialize",
@@ -63,16 +72,24 @@ where
     M: Mmcs<F>,
     Chal: ExtensionField<F>,
 {
+    /// The folded vectors from the interactive oracle proof reductions.
     pub folded_vectors: Vec<Vec<Chal>>,
+    /// The MMCS proofs verifying the sampled rows of the committed matrix.
     pub mmcs_proofs: Vec<M::Proof>,
+    /// The opened rows from the committed matrix.
     pub opened_rows: Vec<Vec<Vec<F>>>,
 }
 
+/// Errors that can occur during the execution of the `TensorPcs` protocols.
 #[derive(Debug, Serialize, Deserialize)]
 pub enum TensorPcsError<ME> {
+    /// An error returned by the underlying MMCS.
     MmcsError(ME),
+    /// The claimed evaluation does not match the computed evaluation.
     EvaluationMismatch,
+    /// A consistency check failed during the verification process.
     ConsistencyMismatch,
+    /// The proof structure or dimensions are invalid.
     InvalidProof(&'static str),
 }
 
@@ -551,7 +568,7 @@ mod tests {
         let (commitment, prover_data) = <TensorPcs<_, _, _> as StarkMultilinearPcs<
             BabyBear,
             BabyBear,
-        >>::commit(&pcs, vec![evals.clone()]);
+        >>::commit(&pcs, vec![evals]);
 
         let cap: p3_symmetric::MerkleCap<BabyBear, [u8; 32]> =
             p3_merkle_tree::MerkleTree::<BabyBear, u8, _, 2, 32>::cap(&prover_data.mmcs_data, 0);
@@ -579,7 +596,7 @@ mod tests {
         let (_commitment, prover_data): (_, TensorPcsProverData<_, _, _>) =
             <TensorPcs<_, _, _> as StarkMultilinearPcs<BabyBear, BabyBear>>::commit(
                 &pcs,
-                vec![evals.clone()],
+                vec![evals],
             );
 
         assert_eq!(prover_data.encoded_matrices[0].width(), 2);
@@ -1003,7 +1020,7 @@ mod tests {
         ));
 
         // ADVERSARY: Truncate opened_rows array
-        let mut bad_proof_2 = proof.clone();
+        let mut bad_proof_2 = proof;
         bad_proof_2.opened_rows.pop();
 
         let mut verifier_ch2 = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);

@@ -1,3 +1,8 @@
+//! Tensor Polynomial Commitment Scheme (PCS).
+//!
+//! This crate implements a polynomial commitment scheme based on linear codes
+//! and multi-column commitment schemes (MMCS).
+
 #![no_std]
 
 #[cfg(feature = "std")]

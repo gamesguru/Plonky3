@@ -21,7 +21,7 @@ type MyCompress = CompressionFunctionFromHasher<MyHash, 2, 4>;
 type MyMmcs =
     MerkleTreeMmcs<[F; VECTOR_LEN], [u64; VECTOR_LEN], SerializingHasher<MyHash>, MyCompress, 2, 4>;
 
-fn get_breadth_test_dims() -> &'static [&'static [usize]] {
+const fn get_breadth_test_dims() -> &'static [&'static [usize]] {
     if cfg!(debug_assertions) {
         &[&[12, 1, 10], &[14, 1]]
     } else {
@@ -36,7 +36,7 @@ fn get_breadth_test_dims() -> &'static [&'static [usize]] {
     }
 }
 
-fn get_scaling_bounds() -> &'static [usize] {
+const fn get_scaling_bounds() -> &'static [usize] {
     if cfg!(debug_assertions) {
         &[10, 14, 18]
     } else {
@@ -145,6 +145,7 @@ fn benchmark_folding_round_simulation() {
         for i in 0..(n / 2) {
             folded.push(vals[2 * i] + challenge * vals[2 * i + 1]);
         }
+        core::hint::black_box(folded);
         let dur = t0.elapsed();
 
         let label = format!("log_n = {log_n:2} (n = 2^{log_n})");
@@ -170,6 +171,7 @@ fn benchmark_hadamard_product_scaling() {
         for i in 0..n {
             res.push(vals_a[i] * vals_b[i]);
         }
+        core::hint::black_box(res);
         let dur = t0.elapsed();
 
         let label = format!("log_n = {log_n:2} (n = 2^{log_n})");
