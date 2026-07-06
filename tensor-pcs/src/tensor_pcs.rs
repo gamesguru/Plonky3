@@ -152,13 +152,14 @@ where
             }
 
             let encoded = self.code.encode_batch(e.clone());
-            debug_assert!(
+            assert!(
                 (0..height).all(|r| (0..e.width()).all(|c| encoded.get(r, c) == e.get(r, c))),
-                "Systematic code must store the message in the first `message_len` rows"
+                "TensorPcs requires a systematic *prefix* layout: the message must occupy the first `message_len` rows"
             );
             // encoded is (codeword_len x width). Each column is a codeword.
             // We commit to its rows via MMCS.
             encoded_matrices.push(encoded);
+        }
 
         // Commit via MMCS
         let (commitment, mmcs_data) = self.mmcs.commit(encoded_matrices.clone());
@@ -494,9 +495,11 @@ where
 
             // Reconstruct encoded extension field elements
             let mut reencoded_v = Vec::with_capacity(self.codeword_len);
+            let mut row_buf = Vec::with_capacity(Chal::DIMENSION);
             for row in encoded_m.rows() {
-                let row_vec: Vec<F> = row.into_iter().collect();
-                let val = Chal::from_basis_coefficients_slice(&row_vec).ok_or(
+                row_buf.clear();
+                row_buf.extend(row.into_iter());
+                let val = Chal::from_basis_coefficients_slice(&row_buf).ok_or(
                     TensorPcsError::InvalidProof("failed to reconstruct extension field element"),
                 )?;
                 reencoded_v.push(val);
@@ -776,13 +779,16 @@ mod tests {
             verifier_challenger.observe_algebra_element(e);
         }
         let bits = codeword_len.next_power_of_two().ilog2() as usize;
-        let mut row_indices = Vec::with_capacity(pcs.num_queries);
-        while row_indices.len() < pcs.num_queries {
-            let idx = verifier_challenger.sample_bits(bits);
-            if idx < codeword_len
-                && (codeword_len <= pcs.num_queries || !row_indices.contains(&idx))
-            {
-                row_indices.push(idx);
+        let num_queries = pcs.num_queries.min(codeword_len);
+        let mut row_indices = Vec::with_capacity(num_queries);
+        if num_queries == codeword_len {
+            row_indices.extend(0..codeword_len);
+        } else {
+            while row_indices.len() < num_queries {
+                let idx = verifier_challenger.sample_bits(bits);
+                if idx < codeword_len && !row_indices.contains(&idx) {
+                    row_indices.push(idx);
+                }
             }
         }
 
