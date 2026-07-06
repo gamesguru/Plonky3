@@ -16,6 +16,13 @@ impl<F: Field, In: Matrix<F>> CodeOrFamily<F, In> for IdentityCode {
 
     // Returns un-encoded
     fn encode_batch(&self, messages: In) -> Self::Out {
+        assert_eq!(
+            messages.height(),
+            self.len,
+            "Message height mismatch (expected {}, got {})",
+            self.len,
+            messages.height()
+        );
         messages
     }
 }

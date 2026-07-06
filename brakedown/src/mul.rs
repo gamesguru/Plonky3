@@ -19,17 +19,15 @@ where
     assert_eq!(a.width(), b.height(), "A, B dimensions don't match");
     let c_width = b.width();
 
-    let c_values = (0..a.height())
-        .into_par_iter()
-        .flat_map(|a_row_idx| {
-            let mut c_row = vec![F::ZERO; c_width];
+    let mut c_values = vec![F::ZERO; a.height() * c_width];
+    c_values
+        .par_chunks_mut(c_width)
+        .enumerate()
+        .for_each(|(a_row_idx, c_row)| {
             for &(a_col_idx, a_val) in a.sparse_row(a_row_idx) {
-                let b_row = b.row_slice(a_col_idx).unwrap();
-                add_scaled_slice_in_place(&mut c_row, &b_row, a_val);
+                let b_row = b.row_slice(a_col_idx).expect("index within validated bounds");
+                add_scaled_slice_in_place(c_row, &b_row, a_val);
             }
-            c_row
-        })
-        .collect();
-
+        });
     RowMajorMatrix::new(c_values, c_width)
 }

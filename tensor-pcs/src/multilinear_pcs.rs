@@ -21,7 +21,10 @@ pub trait StarkMultilinearPcs<Val: Field, Challenge: ExtensionField<Val>> {
         evals: impl IntoIterator<Item = p3_matrix::dense::RowMajorMatrix<Val>>,
     ) -> (Self::Commitment, Self::ProverData);
 
-    /// Open a batch of committed polynomials at a given point, z, in the hypercube.
+    /// Open a batch of committed polynomials at a given point `z` in the hypercube.
+    ///
+    /// The Fiat–Shamir transcript in `challenger` must already be bound to the corresponding
+    /// commitment before calling `open` (e.g. via `challenger.observe(commitment)` in the caller).
     fn open(
         &self,
         prover_data: &Self::ProverData,
