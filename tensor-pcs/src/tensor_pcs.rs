@@ -499,7 +499,7 @@ where
             let mut row_buf = Vec::with_capacity(Chal::DIMENSION);
             for row in encoded_m.rows() {
                 row_buf.clear();
-                row_buf.extend(row.into_iter());
+                row_buf.extend(row);
                 let val = Chal::from_basis_coefficients_slice(&row_buf).ok_or(
                     TensorPcsError::InvalidProof("failed to reconstruct extension field element"),
                 )?;
