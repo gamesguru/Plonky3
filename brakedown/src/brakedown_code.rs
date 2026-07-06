@@ -126,7 +126,6 @@ mod tests {
     use p3_field::PrimeCharacteristicRing;
     use p3_mersenne_31::Mersenne31;
     use rand::SeedableRng;
-    use rand_chacha::ChaCha20Rng;
 
     use super::*;
     use crate::macros::{brakedown, brakedown_to_dense};
