@@ -11,7 +11,7 @@ check:
 # Format this crate's code using nightly fmt
 format:
     cargo +nightly fmt
-    cargo sort --workspace --grouped
+    cargo sort --grouped
 
 # Automatically fix Clippy warnings on nightly with pedantic and performance lints enabled
 fix:

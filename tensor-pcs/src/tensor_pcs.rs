@@ -35,7 +35,7 @@ where
     C: LinearCode<F, RowMajorMatrix<F>>,
     M: Mmcs<F>,
 {
-    pub fn new(code: C, mmcs: M, num_queries: usize) -> Self {
+    pub const fn new(code: C, mmcs: M, num_queries: usize) -> Self {
         Self {
             code,
             mmcs,
@@ -131,9 +131,16 @@ where
                 );
             }
 
-            assert!(e.width().is_power_of_two(), "Matrix width must be a power of two");
+            assert!(
+                e.width().is_power_of_two(),
+                "Matrix width must be a power of two"
+            );
             if let Some(first) = evals.first() {
-                assert_eq!(e.width(), first.width(), "All matrices in a batch must have the same width");
+                assert_eq!(
+                    e.width(),
+                    first.width(),
+                    "All matrices in a batch must have the same width"
+                );
             }
             let encoded = self.code.encode_batch(e.clone());
             // encoded is (codeword_len x width). Each column is a codeword.
@@ -201,8 +208,9 @@ where
                 v.len() >= height,
                 "Encoded column shorter than message length"
             );
+            // Note: We implicitly assume a systematic-prefix layout where the first `height`
+            // elements correspond to the un-encoded message (the multilinear evaluations).
             // Evaluation e = v(z_row)
-            // Truncate to the message part for multilinear evaluation
             let v_message = v[..height].to_vec();
             let e = Poly::new(v_message).eval_ext(&Point::new(z_row.to_vec()));
             folded_evals.push(vec![e]);
@@ -222,25 +230,24 @@ where
         }
 
         let codeword_len = self.code.codeword_len();
-        assert!(codeword_len > 0, "codeword_len must be > 0");
-        assert!(codeword_len > 0, "codeword_len must be nonzero");
+        assert!(codeword_len != 0, "codeword_len must be nonzero");
         let bits = codeword_len
             .checked_next_power_of_two()
             .expect("codeword_len too large")
             .ilog2() as usize;
 
-        let max_queries = core::cmp::min(self.num_queries, codeword_len);
-        let row_indices: Vec<usize> = if max_queries == codeword_len {
-            (0..codeword_len).collect()
+        let num_queries = self.num_queries.min(codeword_len);
+        let mut row_indices = Vec::with_capacity(num_queries);
+
+        if num_queries == codeword_len {
+            row_indices.extend(0..codeword_len);
         } else {
-            let mut row_set = alloc::collections::BTreeSet::new();
-            while row_set.len() < max_queries {
+            while row_indices.len() < num_queries {
                 let idx = challenger.sample_bits(bits);
-                if idx < codeword_len {
-                    row_set.insert(idx);
+                if idx < codeword_len && !row_indices.contains(&idx) {
+                    row_indices.push(idx);
                 }
             }
-            row_set.into_iter().collect()
         };
 
         // Open sampled rows of the encoded matrices
@@ -272,11 +279,14 @@ where
         challenger: &mut impl p3_challenger::FieldChallenger<F>,
     ) -> Result<(), Self::Error> {
         if self.num_queries == 0 {
-            return Err(TensorPcsError::InvalidProof("num_queries must be at least 1"));
+            return Err(TensorPcsError::InvalidProof(
+                "num_queries must be at least 1",
+            ));
         }
         let n = point.len();
         let height = self.code.message_len();
         // Validate height
+        if !height.is_power_of_two() {
             return Err(TensorPcsError::InvalidProof(
                 "message lengths must be powers of two",
             ));
@@ -288,7 +298,9 @@ where
         let (z_row, z_col) = point.split_at(log_r);
 
         if proof.folded_vectors.len() != values.len() {
-            return Err(TensorPcsError::InvalidProof("folded_vectors length mismatch"));
+            return Err(TensorPcsError::InvalidProof(
+                "folded_vectors length mismatch",
+            ));
         }
 
         // Observe folded vectors in Fiat-Shamir transcript (must match prover)
@@ -307,9 +319,6 @@ where
 
         let codeword_len = self.code.codeword_len();
         if codeword_len == 0 {
-            return Err(TensorPcsError::InvalidProof("codeword_len must be > 0"));
-        }
-        if codeword_len == 0 {
             return Err(TensorPcsError::InvalidProof("codeword_len must be nonzero"));
         }
         let bits = codeword_len
@@ -317,27 +326,22 @@ where
             .ok_or(TensorPcsError::InvalidProof("codeword_len too large"))?
             .ilog2() as usize;
 
-        let max_queries = core::cmp::min(self.num_queries, codeword_len);
-        let row_indices: Vec<usize> = if max_queries == codeword_len {
-            (0..codeword_len).collect()
+        let num_queries = self.num_queries.min(codeword_len);
+        let mut row_indices = Vec::with_capacity(num_queries);
+
+        if num_queries == codeword_len {
+            row_indices.extend(0..codeword_len);
         } else {
-            let mut row_set = alloc::collections::BTreeSet::new();
-            while row_set.len() < max_queries {
+            while row_indices.len() < num_queries {
                 let idx = challenger.sample_bits(bits);
-                if idx < codeword_len {
-                    row_set.insert(idx);
+                if idx < codeword_len && !row_indices.contains(&idx) {
+                    row_indices.push(idx);
                 }
             }
-            row_set.into_iter().collect()
-        };
+        }
 
         // Verify proof structure, avoid panics & potential malicious out-of-bounds access
-        if proof.folded_vectors.len() != values.len() {
-            return Err(TensorPcsError::InvalidProof(
-                "folded_vectors length mismatch",
-            ));
-        }
-        if proof.opened_rows.len() != row_indices.len() {
+        if proof.opened_rows.len() != num_queries {
             return Err(TensorPcsError::InvalidProof("opened_rows length mismatch"));
         }
         if proof.mmcs_proofs.len() != row_indices.len() {
@@ -1027,5 +1031,41 @@ mod tests {
                 "opened_rows length mismatch"
             ))
         ));
+    }
+
+    #[test]
+    #[should_panic(expected = "Matrix height must be a power of two")]
+    fn test_tensor_pcs_codeword_zero() {
+        type F = BabyBear;
+        type Chal = BinomialExtensionField<F, 4>;
+
+        let code = IdentityCode { len: 0 };
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<F, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
+
+        let pcs = TensorPcs::new(code, mmcs, 40);
+        let evals = RowMajorMatrix::new(vec![], 0);
+
+        let _ = <TensorPcs<_, _, _> as StarkMultilinearPcs<F, Chal>>::commit(&pcs, vec![evals]);
+    }
+
+    #[test]
+    #[should_panic(expected = "Matrix height must match the code's message length")]
+    fn test_tensor_pcs_identity_code_height_mismatch() {
+        type F = BabyBear;
+        type Chal = BinomialExtensionField<F, 4>;
+
+        let code = IdentityCode { len: 16 };
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<F, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
+
+        let pcs = TensorPcs::new(code, mmcs, 40);
+        let evals = RowMajorMatrix::new(vec![F::ZERO; 8], 1); // Height 8 mismatch
+
+        let _ = <TensorPcs<_, _, _> as StarkMultilinearPcs<F, Chal>>::commit(&pcs, vec![evals]);
     }
 }

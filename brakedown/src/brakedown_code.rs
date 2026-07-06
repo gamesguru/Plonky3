@@ -75,8 +75,7 @@ where
     }
 
     fn codeword_len(&self) -> usize {
-        <BrakedownCode<F, IC> as Code<F, In>>::message_len(self)
-            + <BrakedownCode<F, IC> as SystematicCode<F, In>>::parity_len(self)
+        <Self as Code<F, In>>::message_len(self) + <Self as SystematicCode<F, In>>::parity_len(self)
     }
 }
 

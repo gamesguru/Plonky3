@@ -6,11 +6,8 @@ use p3_field::Field;
 use p3_matrix::Matrix;
 use rand::SeedableRng;
 use rand::distr::{Distribution, StandardUniform};
-use rand_chacha::ChaCha20Rng;
 
-use crate::BrakedownCode;
 use crate::macros::{brakedown, brakedown_to_dense};
-use crate::sparse::CsrMatrix;
 
 #[allow(deprecated)] // TODO: Remove when UndefinedLDE is gone.
 pub fn fast_registry<F, In>() -> impl LinearCodeFamily<F, In>

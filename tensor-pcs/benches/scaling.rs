@@ -40,7 +40,9 @@ fn get_scaling_bounds() -> &'static [usize] {
     if cfg!(debug_assertions) {
         &[10, 14, 18]
     } else {
-        &[10, 14, 18, 20, 22, 24, 26, 28, 30]
+        // Cap to log_n <= 28 to prevent OOM kills on massive matrix allocations
+        // during `cargo bench` across all suite functions.
+        &[10, 14, 18, 20, 22, 24, 26, 28]
     }
 }
 
@@ -188,9 +190,6 @@ fn benchmark_linearity_scaling(mmcs: &MyMmcs) {
         // to fold columns dynamically in place using a `next_tail: Vec<EF>` boundary state (multi-stark/src/rounds.rs)
         // instead of allocating completely new matrices (like `folded_shifted_trace`) and manually offsetting.
         // This will cut the memory/cache footprint in half, allowing us to safely lift this 28-bit scaling cap.
-        if log_n > 28 {
-            continue;
-        }
         let n = 1 << log_n;
         let code = IdentityCode { len: n };
         let pcs = TensorPcs::new(code, mmcs.clone(), 40);

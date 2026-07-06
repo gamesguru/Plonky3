@@ -25,7 +25,9 @@ where
         .enumerate()
         .for_each(|(a_row_idx, c_row)| {
             for &(a_col_idx, a_val) in a.sparse_row(a_row_idx) {
-                let b_row = b.row_slice(a_col_idx).expect("index within validated bounds");
+                let b_row = b
+                    .row_slice(a_col_idx)
+                    .expect("index within validated bounds");
                 add_scaled_slice_in_place(c_row, &b_row, a_val);
             }
         });
