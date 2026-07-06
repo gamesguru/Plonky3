@@ -1,4 +1,4 @@
-# Justfile - Command runner for p3-tensor-pcs crate development
+# Justfile - Command runner for p3-* crate development
 
 # List available recipes
 _help:
@@ -25,9 +25,9 @@ lint:
 test:
     cargo test
 
-# Run the asymptotic scaling benchmark suite for this crate
+# Run the benchmark suite for this crate
 bench:
-    cargo bench --profile release --bench scaling
+    cargo bench --profile release
 
 # Run code coverage analysis using llvm-cov for this crate only
 cov:

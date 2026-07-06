@@ -1,4 +1,4 @@
-# Justfile - Command runner for p3-code crate development
+# Justfile - Command runner for p3-* crate development
 
 # List available recipes
 _help:
@@ -11,7 +11,7 @@ check:
 # Format this crate's code using nightly fmt
 format:
     cargo +nightly fmt
-    cargo sort --grouped
+    cargo sort --workspace --grouped
 
 # Automatically fix Clippy warnings on nightly with pedantic and performance lints enabled
 fix:
@@ -24,6 +24,10 @@ lint:
 # Run all tests in this crate
 test:
     cargo test
+
+# Run the benchmark suite for this crate
+bench:
+    cargo bench --profile release
 
 # Run code coverage analysis using llvm-cov for this crate only
 cov:

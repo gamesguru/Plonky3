@@ -1,4 +1,4 @@
-# Justfile - Command runner for p3-brakedown crate development
+# Justfile - Command runner for p3-* crate development
 
 # List available recipes
 _help:
