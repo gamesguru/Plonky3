@@ -7,10 +7,10 @@ use crate::{Code, CodeFamily, CodeOrFamily, LinearCode};
 // TODO: Remove? Not really used.
 pub trait SystematicCodeOrFamily<F: Field, In: Matrix<F>>: CodeOrFamily<F, In> {}
 
-/// A systematic code.
+/// A systematic code with codeword layout `[message || parity]` (message rows first).
+/// `encode_batch` must return a matrix whose first `message_len()` rows equal the input messages.
 pub trait SystematicCode<F: Field, In: Matrix<F>>:
     SystematicCodeOrFamily<F, In> + Code<F, In>
-{
     fn parity_len(&self) -> usize {
         self.codeword_len()
             .checked_sub(self.message_len())

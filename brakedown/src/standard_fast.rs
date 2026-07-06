@@ -1,10 +1,8 @@
 use alloc::boxed::Box;
-use alloc::vec;
 
 use p3_code::{LinearCodeFamily, SLCodeRegistry};
 use p3_field::Field;
 use p3_matrix::Matrix;
-use rand::SeedableRng;
 use rand::distr::{Distribution, StandardUniform};
 
 use crate::macros::{brakedown, brakedown_to_dense};
