@@ -205,6 +205,7 @@ where
     (result_a, result_b)
 }
 
+#[must_use]
 pub const fn current_num_threads() -> usize {
     1
 }
