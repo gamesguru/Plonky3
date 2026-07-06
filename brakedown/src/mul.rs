@@ -1,3 +1,5 @@
+#![allow(clippy::arithmetic_side_effects)]
+
 use alloc::vec;
 
 use p3_field::{Field, add_scaled_slice_in_place};

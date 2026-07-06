@@ -27,40 +27,5 @@ criterion.workspace = true
 p3-mersenne-31 = { path = "../mersenne-31" }
 rand = { workspace = true, features = ["std"] }
 
-[lints.rust]
-# Security & Robustness
-unsafe_code = "deny"
-unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }
-# Inherited workspace lints
-rust_2018_idioms = { level = "deny", priority = -1 }
-unused_must_use = "deny"
-rust_2024_incompatible_pat = "warn"
-
-[lints.rustdoc]
-all = "warn"
-
-[lints.clippy]
-# Inherited workspace clippy lints
-all = { level = "warn", priority = -1 }
-nursery = { level = "warn", priority = -1 }
-semicolon_if_nothing_returned = "warn"
-match_bool = "warn"
-needless_pass_by_value = "warn"
-redundant_pub_crate = "allow"
-too_long_first_doc_paragraph = "allow"
-unused_peekable = "allow"
-tuple_array_conversions = "allow"
-transmute_undefined_repr = "allow"
-cognitive_complexity = "allow"
-
-# PR Security & Robustness clippy lints
-pedantic = "warn"
-perf = "warn"
-complexity = "warn"
-style = "warn"
-correctness = "warn"
-suspicious = "warn"
-arithmetic_side_effects = "warn"
-undocumented_unsafe_blocks = "warn"
-dbg_macro = "warn"
-get_unwrap = "warn"
+[lints]
+workspace = true

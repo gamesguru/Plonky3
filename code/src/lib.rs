@@ -1,6 +1,7 @@
 //! A framework for codes (in the coding theory sense).
 
 #![no_std]
+#![forbid(unsafe_code)]
 
 extern crate alloc;
 

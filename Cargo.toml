@@ -52,6 +52,7 @@ rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rust.unused_must_use = "deny"
 rust.rust_2024_incompatible_pat = "warn"
 rustdoc.all = "warn"
+rust.unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }
 
 [workspace.lints.clippy]
 all = { level = "warn", priority = -1 }
@@ -68,6 +69,18 @@ unused_peekable = "allow"
 tuple_array_conversions = "allow"
 transmute_undefined_repr = "allow"
 cognitive_complexity = "allow"
+
+# Shared PR security & clippy lints
+pedantic = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+arithmetic_side_effects = "warn"
+undocumented_unsafe_blocks = "warn"
+dbg_macro = "warn"
+get_unwrap = "warn"
 
 [workspace.dependencies]
 blake3 = { version = "1.8", default-features = false }

@@ -1,3 +1,5 @@
+#![allow(clippy::arithmetic_side_effects)]
+
 use alloc::vec;
 
 use p3_code::{Code, CodeOrFamily, LinearCode, SystematicCode, SystematicCodeOrFamily};

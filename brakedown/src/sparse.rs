@@ -1,3 +1,5 @@
+#![allow(clippy::arithmetic_side_effects)]
+
 use alloc::vec;
 use alloc::vec::Vec;
 use core::ops::Range;

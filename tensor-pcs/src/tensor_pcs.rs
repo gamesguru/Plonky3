@@ -44,6 +44,7 @@ where
 {
     /// Creates a new `TensorPcs` instance with the specified linear code, MMCS, and query count.
     pub const fn new(code: C, mmcs: M, num_queries: usize) -> Self {
+        assert!(num_queries > 0, "num_queries must be at least 1");
         Self {
             code,
             mmcs,
@@ -1086,5 +1087,19 @@ mod tests {
         let evals = RowMajorMatrix::new(vec![F::ZERO; 8], 1); // Height 8 mismatch
 
         let _ = <TensorPcs<_, _, _> as StarkMultilinearPcs<F, Chal>>::commit(&pcs, vec![evals]);
+    }
+
+    #[test]
+    #[should_panic(expected = "num_queries must be at least 1")]
+    fn test_tensor_pcs_num_queries_zero() {
+        type F = BabyBear;
+
+        let code = IdentityCode { len: 16 };
+        let hash = Keccak256Hash;
+        let compress = CompressionFunctionFromHasher::new(hash);
+        let serial_hasher = SerializingHasher::new(hash);
+        let mmcs = MerkleTreeMmcs::<F, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
+
+        let _pcs = TensorPcs::new(code, mmcs, 0);
     }
 }
