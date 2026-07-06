@@ -248,7 +248,7 @@ where
                     row_indices.push(idx);
                 }
             }
-        };
+        }
 
         // Open sampled rows of the encoded matrices
         let mut opened_rows = Vec::with_capacity(self.num_queries);
