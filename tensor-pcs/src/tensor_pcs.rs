@@ -122,7 +122,10 @@ where
         evals: impl IntoIterator<Item = RowMajorMatrix<F>>,
     ) -> (Self::Commitment, Self::ProverData) {
         let evals: Vec<_> = evals.into_iter().collect();
-
+        assert!(
+            !evals.is_empty(),
+            "Cannot commit an empty batch of polynomials"
+        );
         // Encode each column of each matrix
         let mut encoded_matrices = Vec::with_capacity(evals.len());
         for e in &evals {
@@ -149,10 +152,13 @@ where
             }
 
             let encoded = self.code.encode_batch(e.clone());
+            debug_assert!(
+                (0..height).all(|r| (0..e.width()).all(|c| encoded.get(r, c) == e.get(r, c))),
+                "Systematic code must store the message in the first `message_len` rows"
+            );
             // encoded is (codeword_len x width). Each column is a codeword.
             // We commit to its rows via MMCS.
             encoded_matrices.push(encoded);
-        }
 
         // Commit via MMCS
         let (commitment, mmcs_data) = self.mmcs.commit(encoded_matrices.clone());
@@ -188,8 +194,9 @@ where
             "point length ({n}) is too small for message length log_r ({log_r})"
         );
         let log_c = n - log_r;
-        let width = 1 << log_c;
-
+        let width = 1_usize
+            .checked_shl(u32::try_from(log_c).expect("log_c exceeds 32 bits"))
+            .expect("width overflow");
         // Variables [0..log_r] are MSBs (rows), [log_r..n] are LSBs (columns)
         let (z_row, z_col) = point.split_at(log_r);
 
