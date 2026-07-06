@@ -34,6 +34,9 @@ pub trait StarkMultilinearPcs<Val: Field, Challenge: ExtensionField<Val>> {
 
     /// Verify a batch of opening proofs
     ///
+    /// The Fiat–Shamir transcript in `challenger` must already be bound to `commitment`
+    /// (e.g. via `challenger.observe(commitment)` in the caller), matching the prover's transcript.
+    ///
     /// # Errors
     ///
     /// Returns an error if the proof is invalid or fails verification.

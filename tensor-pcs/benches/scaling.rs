@@ -120,6 +120,7 @@ fn benchmark_transposition_scaling() {
                 }
             }
         }
+        std::hint::black_box(&dummy);
         let dur = t0.elapsed();
 
         let label = format!("log_n = {log_n:2} (n = 2^{log_n})");

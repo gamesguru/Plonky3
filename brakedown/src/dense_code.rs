@@ -51,6 +51,16 @@ where
             .codeword_len
             .checked_sub(self.message_len)
             .expect("codeword_len must be >= message_len");
+        assert_eq!(
+            self.generator.width(),
+            self.message_len,
+            "DenseLinearCode generator width must equal message_len"
+        );
+        assert_eq!(
+            self.generator.height(),
+            parity_height,
+            "DenseLinearCode generator height must equal (codeword_len - message_len)"
+        );
         let mut parity_values = vec![F::ZERO; parity_height * out_width];
 
         // Perform dense matrix multiplication: Parity = G * N_MESSAGES
