@@ -131,6 +131,10 @@ where
                 );
             }
 
+            assert!(e.width().is_power_of_two(), "Matrix width must be a power of two");
+            if let Some(first) = evals.first() {
+                assert_eq!(e.width(), first.width(), "All matrices in a batch must have the same width");
+            }
             let encoded = self.code.encode_batch(e.clone());
             // encoded is (codeword_len x width). Each column is a codeword.
             // We commit to its rows via MMCS.
@@ -218,16 +222,26 @@ where
         }
 
         let codeword_len = self.code.codeword_len();
-        let bits = codeword_len.next_power_of_two().ilog2() as usize;
-        let mut row_indices = Vec::with_capacity(self.num_queries);
-        while row_indices.len() < self.num_queries {
-            let idx = challenger.sample_bits(bits);
-            if idx < codeword_len
-                && (codeword_len <= self.num_queries || !row_indices.contains(&idx))
-            {
-                row_indices.push(idx);
+        assert!(codeword_len > 0, "codeword_len must be > 0");
+        assert!(codeword_len > 0, "codeword_len must be nonzero");
+        let bits = codeword_len
+            .checked_next_power_of_two()
+            .expect("codeword_len too large")
+            .ilog2() as usize;
+
+        let max_queries = core::cmp::min(self.num_queries, codeword_len);
+        let row_indices: Vec<usize> = if max_queries == codeword_len {
+            (0..codeword_len).collect()
+        } else {
+            let mut row_set = alloc::collections::BTreeSet::new();
+            while row_set.len() < max_queries {
+                let idx = challenger.sample_bits(bits);
+                if idx < codeword_len {
+                    row_set.insert(idx);
+                }
             }
-        }
+            row_set.into_iter().collect()
+        };
 
         // Open sampled rows of the encoded matrices
         let mut opened_rows = Vec::with_capacity(self.num_queries);
@@ -257,10 +271,12 @@ where
         proof: &Self::Proof,
         challenger: &mut impl p3_challenger::FieldChallenger<F>,
     ) -> Result<(), Self::Error> {
+        if self.num_queries == 0 {
+            return Err(TensorPcsError::InvalidProof("num_queries must be at least 1"));
+        }
         let n = point.len();
         let height = self.code.message_len();
         // Validate height
-        if !height.is_power_of_two() {
             return Err(TensorPcsError::InvalidProof(
                 "message lengths must be powers of two",
             ));
@@ -270,6 +286,10 @@ where
             "point length is too small for message length",
         ))?;
         let (z_row, z_col) = point.split_at(log_r);
+
+        if proof.folded_vectors.len() != values.len() {
+            return Err(TensorPcsError::InvalidProof("folded_vectors length mismatch"));
+        }
 
         // Observe folded vectors in Fiat-Shamir transcript (must match prover)
         for v in &proof.folded_vectors {
@@ -286,16 +306,30 @@ where
         }
 
         let codeword_len = self.code.codeword_len();
-        let bits = codeword_len.next_power_of_two().ilog2() as usize;
-        let mut row_indices = Vec::with_capacity(self.num_queries);
-        while row_indices.len() < self.num_queries {
-            let idx = challenger.sample_bits(bits);
-            if idx < codeword_len
-                && (codeword_len <= self.num_queries || !row_indices.contains(&idx))
-            {
-                row_indices.push(idx);
-            }
+        if codeword_len == 0 {
+            return Err(TensorPcsError::InvalidProof("codeword_len must be > 0"));
         }
+        if codeword_len == 0 {
+            return Err(TensorPcsError::InvalidProof("codeword_len must be nonzero"));
+        }
+        let bits = codeword_len
+            .checked_next_power_of_two()
+            .ok_or(TensorPcsError::InvalidProof("codeword_len too large"))?
+            .ilog2() as usize;
+
+        let max_queries = core::cmp::min(self.num_queries, codeword_len);
+        let row_indices: Vec<usize> = if max_queries == codeword_len {
+            (0..codeword_len).collect()
+        } else {
+            let mut row_set = alloc::collections::BTreeSet::new();
+            while row_set.len() < max_queries {
+                let idx = challenger.sample_bits(bits);
+                if idx < codeword_len {
+                    row_set.insert(idx);
+                }
+            }
+            row_set.into_iter().collect()
+        };
 
         // Verify proof structure, avoid panics & potential malicious out-of-bounds access
         if proof.folded_vectors.len() != values.len() {
@@ -496,7 +530,7 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_brakedown::BrakedownCode;
     use p3_brakedown::sparse::CsrMatrix;
-    use p3_challenger::{CanSampleBits, FieldChallenger, SerializingChallenger32};
+    use p3_challenger::{CanObserve, CanSampleBits, FieldChallenger, SerializingChallenger32};
     use p3_code::{Code, IdentityCode};
     use p3_field::PrimeCharacteristicRing;
     use p3_field::extension::BinomialExtensionField;
@@ -648,10 +682,12 @@ mod tests {
             Chal::from(F::new(4)),
         ];
         let mut challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        challenger.observe(commitment.clone());
 
         let (values, proof) = pcs.open(&prover_data, &point, &mut challenger);
 
         let mut challenger_verify = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        challenger_verify.observe(commitment.clone());
         let result = pcs.verify(&commitment, &point, &values, &proof, &mut challenger_verify);
 
         assert!(result.is_ok());
