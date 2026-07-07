@@ -171,10 +171,10 @@ where
 
         (
             commitment,
-TensorPcsProverData {
+            TensorPcsProverData {
                 encoded_matrices,
                 mmcs_data,
-            }
+            },
         )
     }
 
@@ -257,6 +257,8 @@ TensorPcsProverData {
 
         assert!(self.num_queries > 0, "num_queries must be at least 1");
         let num_queries = self.num_queries.min(codeword_len);
+
+        let mut row_indices = Vec::with_capacity(num_queries);
 
         if num_queries == codeword_len {
             row_indices.extend(0..codeword_len);
