@@ -48,6 +48,10 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
         T: Default,
         StandardUniform: Distribution<T>,
     {
+        assert!(
+            row_weight <= cols,
+            "row_weight must be <= cols (got row_weight = {row_weight}, cols = {cols})"
+        );
         let mut nonzero_values = Vec::with_capacity(rows * row_weight);
         for _ in 0..rows {
             let indices = rand::seq::index::sample(rng, cols, row_weight);
@@ -75,6 +79,10 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
         StandardUniform: Distribution<T>,
     {
         // Sample rows per column to build COO list
+        assert!(
+            col_weight <= rows,
+            "col_weight must be <= rows (got col_weight = {col_weight}, rows = {rows})"
+        );
         let mut entries = Vec::with_capacity(cols * col_weight);
         for c in 0..cols {
             let indices = rand::seq::index::sample(rng, rows, col_weight);

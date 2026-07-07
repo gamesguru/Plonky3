@@ -56,7 +56,6 @@ where
 
 /// The prover data stores the original multi-linear evaluations and the MMCS prover data structure.
 pub struct TensorPcsProverData<F: Field, M: Mmcs<F>, Mat: Matrix<F>> {
-    pub evals: Vec<RowMajorMatrix<F>>,
     pub encoded_matrices: Vec<Mat>,
     pub mmcs_data: M::ProverData<Mat>,
 }
@@ -153,7 +152,12 @@ where
             }
 
             let encoded = self.code.encode_batch(e.clone());
-            assert!(
+            debug_assert_eq!(
+                encoded.height(),
+                self.code.codeword_len(),
+                "Encoded matrix height must match the codeword length"
+            );
+            debug_assert!(
                 (0..height).all(|r| (0..e.width()).all(|c| encoded.get(r, c) == e.get(r, c))),
                 "TensorPcs requires a systematic *prefix* layout: the message must occupy the first `message_len` rows"
             );
@@ -167,11 +171,10 @@ where
 
         (
             commitment,
-            TensorPcsProverData {
-                evals,
+TensorPcsProverData {
                 encoded_matrices,
                 mmcs_data,
-            },
+            }
         )
     }
 
@@ -188,6 +191,7 @@ where
         point: &[Chal],
         challenger: &mut impl p3_challenger::FieldChallenger<F>,
     ) -> (Vec<Vec<Chal>>, Self::Proof) {
+        assert!(self.num_queries > 0, "num_queries must be at least 1");
         let n = point.len();
         let height = self.code.message_len();
         let log_r = height.ilog2() as usize;
@@ -251,8 +255,8 @@ where
             .expect("codeword_len too large")
             .ilog2() as usize;
 
+        assert!(self.num_queries > 0, "num_queries must be at least 1");
         let num_queries = self.num_queries.min(codeword_len);
-        let mut row_indices = Vec::with_capacity(num_queries);
 
         if num_queries == codeword_len {
             row_indices.extend(0..codeword_len);
