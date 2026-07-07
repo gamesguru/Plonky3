@@ -43,6 +43,10 @@ where
     M: Mmcs<F>,
 {
     /// Creates a new `TensorPcs` instance with the specified linear code, MMCS, and query count.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `num_queries` is 0.
     pub const fn new(code: C, mmcs: M, num_queries: usize) -> Self {
         assert!(num_queries > 0, "num_queries must be at least 1");
         Self {

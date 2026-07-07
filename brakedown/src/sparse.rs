@@ -38,6 +38,10 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
     }
 
     /// Generate random sparse matrix w/ fixed row weight
+    ///
+    /// # Panics
+    ///
+    /// Panics if `row_weight > cols`.
     pub fn rand_fixed_row_weight<R: RngExt>(
         rng: &mut R,
         rows: usize,
@@ -68,6 +72,10 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
     }
 
     /// Generate random sparse matrix w/ fixed col weight (left-regular graph)
+    ///
+    /// # Panics
+    ///
+    /// Panics if `col_weight > rows`.
     pub fn rand_fixed_col_weight<R: RngExt>(
         rng: &mut R,
         rows: usize,
