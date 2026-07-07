@@ -7,7 +7,7 @@
 use std::time::Instant;
 
 use p3_baby_bear::BabyBear;
-use p3_code::IdentityCode;
+use p3_code::{CodeOrFamily, IdentityCode};
 use p3_field::PrimeCharacteristicRing;
 use p3_keccak::{KeccakF, VECTOR_LEN};
 use p3_matrix::dense::RowMajorMatrix;
