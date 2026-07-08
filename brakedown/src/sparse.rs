@@ -58,7 +58,8 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
         );
         let mut nonzero_values = Vec::with_capacity(rows * row_weight);
         for _ in 0..rows {
-            let indices = rand::seq::index::sample(rng, cols, row_weight);
+            let mut indices = rand::seq::index::sample(rng, cols, row_weight).into_vec();
+            indices.sort_unstable();
             for idx in indices {
                 nonzero_values.push((idx, rng.random()));
             }
@@ -99,8 +100,8 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
             }
         }
 
-        // Sort by row for CSR conversion
-        entries.sort_unstable_by_key(|&(r, _, _)| r);
+        // Sort by row and col for CSR conversion
+        entries.sort_unstable_by_key(|&(r, c, _)| (r, c));
 
         // Compress down to CSR arrays
         let mut nonzero_values = Vec::with_capacity(cols * col_weight);
@@ -127,6 +128,34 @@ impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
     }
 }
 
+pub struct CsrRowIterator<'a, T> {
+    sparse_row: &'a [(usize, T)],
+    width: usize,
+    curr_col: usize,
+    sparse_idx: usize,
+}
+
+impl<'a, T: Clone + Default + Send + Sync> Iterator for CsrRowIterator<'a, T> {
+    type Item = T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.curr_col >= self.width {
+            return None;
+        }
+        let val = if self.sparse_idx < self.sparse_row.len()
+            && self.sparse_row[self.sparse_idx].0 == self.curr_col
+        {
+            let v = self.sparse_row[self.sparse_idx].1.clone();
+            self.sparse_idx += 1;
+            v
+        } else {
+            T::default()
+        };
+        self.curr_col += 1;
+        Some(val)
+    }
+}
+
 impl<T: Clone + Default + Send + Sync> Matrix<T> for CsrMatrix<T> {
     fn width(&self) -> usize {
         self.width
@@ -141,10 +170,11 @@ impl<T: Clone + Default + Send + Sync> Matrix<T> for CsrMatrix<T> {
         &self,
         r: usize,
     ) -> impl IntoIterator<Item = T, IntoIter = impl Iterator<Item = T> + Send + Sync> {
-        let mut row = vec![T::default(); self.width()];
-        for (c, v) in self.sparse_row(r) {
-            row[*c] = v.clone();
+        CsrRowIterator {
+            sparse_row: self.sparse_row(r),
+            width: self.width,
+            curr_col: 0,
+            sparse_idx: 0,
         }
-        row.into_iter()
     }
 }

@@ -31,8 +31,7 @@ where
 
         let code = fast_registry::<F, RowMajorMatrix<F>>();
 
-        let mut messages = RowMajorMatrix::rand(&mut rng, n, BATCH_SIZE);
-        messages.values.truncate(n * BATCH_SIZE);
+        let messages = RowMajorMatrix::rand(&mut rng, n, BATCH_SIZE);
 
         group.bench_with_input(BenchmarkId::from_parameter(n), &code, |b, code| {
             b.iter(|| {

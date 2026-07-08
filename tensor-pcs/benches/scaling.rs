@@ -106,8 +106,8 @@ fn benchmark_transposition_scaling() {
         let mut dummy = vec![F::ZERO; n];
 
         // Optimize via cache-oblivious block transposition (Morton-order Z-curve traversal or block tiling).
-        // Dividing the matrix into tiny 64x64 blocks that fit perfectly into the L1/L2 cache before
-        // transposing them speeds up the prover's initial setup phase exponentially for massive graphs.
+        // Dividing the matrix into tiny 64x64 blocks that fit into the L1/L2 cache before
+        // transposing them can significantly speed up the prover's initial setup phase for large graphs.
         let block_size = 64;
         for r_block in (0..height).step_by(block_size) {
             for c_block in (0..width).step_by(block_size) {

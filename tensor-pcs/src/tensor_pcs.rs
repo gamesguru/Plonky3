@@ -60,7 +60,6 @@ where
 
 /// The prover data stores the original multi-linear evaluations and the MMCS prover data structure.
 pub struct TensorPcsProverData<F: Field, M: Mmcs<F>, Mat: Matrix<F>> {
-    pub encoded_matrices: Vec<Mat>,
     pub mmcs_data: M::ProverData<Mat>,
 }
 
@@ -171,15 +170,9 @@ where
         }
 
         // Commit via MMCS
-        let (commitment, mmcs_data) = self.mmcs.commit(encoded_matrices.clone());
+        let (commitment, mmcs_data) = self.mmcs.commit(encoded_matrices);
 
-        (
-            commitment,
-            TensorPcsProverData {
-                encoded_matrices,
-                mmcs_data,
-            },
-        )
+        (commitment, TensorPcsProverData { mmcs_data })
     }
 
     // Context: Prover-side implementation of `StarkMultilinearPcs::open`.
@@ -213,10 +206,11 @@ where
         // Fold columns (polynomials) of each encoded matrix using z_col
         let col_coeffs_poly = Poly::new_from_point(z_col, Chal::ONE);
         let col_coeffs = col_coeffs_poly.as_slice();
-        let mut folded_vectors = Vec::with_capacity(prover_data.encoded_matrices.len());
-        let mut folded_evals = Vec::with_capacity(prover_data.encoded_matrices.len());
+        let matrices = self.mmcs.get_matrices(&prover_data.mmcs_data);
+        let mut folded_vectors = Vec::with_capacity(matrices.len());
+        let mut folded_evals = Vec::with_capacity(matrices.len());
 
-        for m in &prover_data.encoded_matrices {
+        for m in matrices {
             assert_eq!(m.width(), width, "Matrix width must match 2^log_c");
             // v = sum beta_j(z_col) * Col_j
             let mut v = vec![Chal::ZERO; m.height()];
@@ -320,6 +314,9 @@ where
         let log_c = n.checked_sub(log_r).ok_or(TensorPcsError::InvalidProof(
             "point length is too small for message length",
         ))?;
+        if log_c > 28 {
+            return Err(TensorPcsError::InvalidProof("log_c is too large"));
+        }
         let (z_row, z_col) = point.split_at(log_r);
 
         if proof.folded_vectors.len() != values.len() {
@@ -465,6 +462,8 @@ where
         let col_coeffs_poly = Poly::new_from_point(self.z_col, Chal::ONE);
         let col_coeffs = col_coeffs_poly.as_slice();
 
+        let z_row_point = Point::new(self.z_row.to_vec());
+
         for (poly_idx, v) in self.proof.folded_vectors.iter().enumerate() {
             if v.len() != self.codeword_len {
                 return Err(TensorPcsError::InvalidProof(
@@ -485,7 +484,7 @@ where
             // Evaluation e = v(z_row)
             // Truncate to message part for multilinear evaluation
             let v_message = v[..self.height].to_vec();
-            let e = Poly::new(v_message.clone()).eval_ext(&Point::new(self.z_row.to_vec()));
+            let e = Poly::new(v_message.clone()).eval_ext(&z_row_point);
             if e != self.values[poly_idx][0] {
                 return Err(TensorPcsError::EvaluationMismatch);
             }
@@ -563,6 +562,7 @@ mod tests {
     use p3_brakedown::sparse::CsrMatrix;
     use p3_challenger::{CanObserve, CanSampleBits, FieldChallenger, SerializingChallenger32};
     use p3_code::{Code, IdentityCode};
+    use p3_commit::Mmcs;
     use p3_field::PrimeCharacteristicRing;
     use p3_field::extension::BinomialExtensionField;
     use p3_keccak::Keccak256Hash;
@@ -620,7 +620,7 @@ mod tests {
                 vec![evals],
             );
 
-        assert_eq!(prover_data.encoded_matrices[0].width(), 2);
+        assert_eq!(pcs.mmcs.get_matrices(&prover_data.mmcs_data)[0].width(), 2);
     }
 
     #[test]
@@ -658,10 +658,14 @@ mod tests {
             vec![matrix_sum],
         );
 
-        for i in 0..data_sum.encoded_matrices[0].values.len() {
+        let matrices_sum = pcs.mmcs.get_matrices(&data_sum.mmcs_data);
+        let matrices1 = pcs.mmcs.get_matrices(&data1.mmcs_data);
+        let matrices2 = pcs.mmcs.get_matrices(&data2.mmcs_data);
+
+        for i in 0..matrices_sum[0].values.len() {
             assert_eq!(
-                data_sum.encoded_matrices[0].values[i],
-                data1.encoded_matrices[0].values[i] + data2.encoded_matrices[0].values[i]
+                matrices_sum[0].values[i],
+                matrices1[0].values[i] + matrices2[0].values[i]
             );
         }
     }
@@ -685,7 +689,7 @@ mod tests {
                 &pcs,
                 vec![m1, m2],
             );
-        assert_eq!(prover_data.encoded_matrices.len(), 2);
+        assert_eq!(pcs.mmcs.get_matrices(&prover_data.mmcs_data).len(), 2);
     }
 
     #[test]
