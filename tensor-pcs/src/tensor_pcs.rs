@@ -19,7 +19,7 @@ use crate::StarkMultilinearPcs;
 /// A Tensor-based Polynomial Commitment Scheme (PCS).
 ///
 /// This PCS commits to a multilinear polynomial by treating its evaluations as a matrix,
-/// encoding the rows and columns via a linear code, and committing to the rows using an MMCS.
+/// encoding each column via a linear code, and committing to the encoded matrix rows using an MMCS.
 #[derive(Clone, Debug)]
 pub struct TensorPcs<F, C, M>
 where
@@ -58,7 +58,7 @@ where
     }
 }
 
-/// The prover data stores the original multi-linear evaluations and the MMCS prover data structure.
+/// Prover data containing the MMCS prover state for the encoded matrices.
 pub struct TensorPcsProverData<F: Field, M: Mmcs<F>, Mat: Matrix<F>> {
     pub mmcs_data: M::ProverData<Mat>,
 }
@@ -259,9 +259,6 @@ where
         assert!(self.num_queries > 0, "num_queries must be at least 1");
         let num_queries = self.num_queries.min(codeword_len);
         let mut row_indices = Vec::with_capacity(num_queries);
-
-        let mut row_indices = Vec::with_capacity(num_queries);
-
         if num_queries == codeword_len {
             row_indices.extend(0..codeword_len);
         } else {
@@ -1086,7 +1083,7 @@ mod tests {
         let mmcs = MerkleTreeMmcs::<F, u8, _, _, 2, 32>::new(serial_hasher, compress, 0);
 
         let pcs = TensorPcs::new(code, mmcs, 40);
-        let evals = RowMajorMatrix::new(vec![], 0);
+        let evals = RowMajorMatrix::new(vec![], 1);
 
         let _ = <TensorPcs<_, _, _> as StarkMultilinearPcs<F, Chal>>::commit(&pcs, vec![evals]);
     }
