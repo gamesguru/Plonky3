@@ -196,7 +196,10 @@ where
             n >= log_r,
             "point length ({n}) is too small for message length log_r ({log_r})"
         );
-        let log_c = n - log_r;
+        let log_c = n
+            .checked_sub(log_r)
+            .expect("point length is too small for message length");
+        assert!(log_c <= 28, "log_c is too large");
         let width = 1_usize
             .checked_shl(u32::try_from(log_c).expect("log_c exceeds 32 bits"))
             .expect("width overflow");
@@ -255,15 +258,17 @@ where
 
         assert!(self.num_queries > 0, "num_queries must be at least 1");
         let num_queries = self.num_queries.min(codeword_len);
+        let mut row_indices = Vec::with_capacity(num_queries);
 
         let mut row_indices = Vec::with_capacity(num_queries);
 
         if num_queries == codeword_len {
             row_indices.extend(0..codeword_len);
         } else {
+            let mut seen = alloc::collections::BTreeSet::new();
             while row_indices.len() < num_queries {
                 let idx = challenger.sample_bits(bits);
-                if idx < codeword_len && !row_indices.contains(&idx) {
+                if idx < codeword_len && seen.insert(idx) {
                     row_indices.push(idx);
                 }
             }
@@ -354,9 +359,10 @@ where
         if num_queries == codeword_len {
             row_indices.extend(0..codeword_len);
         } else {
+            let mut seen = alloc::collections::BTreeSet::new();
             while row_indices.len() < num_queries {
                 let idx = challenger.sample_bits(bits);
-                if idx < codeword_len && !row_indices.contains(&idx) {
+                if idx < codeword_len && seen.insert(idx) {
                     row_indices.push(idx);
                 }
             }
@@ -560,7 +566,7 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_brakedown::BrakedownCode;
     use p3_brakedown::sparse::CsrMatrix;
-    use p3_challenger::{CanObserve, CanSampleBits, FieldChallenger, SerializingChallenger32};
+    use p3_challenger::{CanObserve, CanSampleBits, SerializingChallenger32};
     use p3_code::{Code, IdentityCode};
     use p3_commit::Mmcs;
     use p3_field::PrimeCharacteristicRing;
