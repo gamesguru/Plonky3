@@ -6,11 +6,10 @@ use core::marker::PhantomData;
 use itertools::{Itertools, izip};
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
 use p3_commit::{
-    BatchOpening, BatchOpeningRef, BuildPeriodicLdeTableFast, Mmcs, OpenedValues, Pcs,
-    PeriodicLdeTable, PolynomialSpace,
+    BatchOpening, BatchOpeningRef, Mmcs, OpenedValues, Pcs, PeriodicLdeTable, PolynomialSpace,
 };
 use p3_field::extension::ComplexExtendable;
-use p3_field::{ExtensionField, Field, dot_product};
+use p3_field::{ExtensionField, Field, batch_multiplicative_inverse, dot_product};
 use p3_fri::FriParameters;
 use p3_fri::verifier::FriError;
 use p3_matrix::dense::{RowMajorMatrix, RowMajorMatrixCow};
@@ -27,7 +26,9 @@ use crate::deep_quotient::{
     extract_lambda,
 };
 use crate::domain::CircleDomain;
-use crate::folding::{CircleFriFolding, CircleFriFoldingForMmcs, fold_y, fold_y_row};
+use crate::folding::{
+    CircleFriFolding, CircleFriFoldingForMmcs, fold_row_with_inv_twiddle, fold_y,
+};
 use crate::point::{Point, compute_lagrange_den_batched};
 use crate::prover::prove;
 use crate::verifier::verify;
@@ -133,7 +134,7 @@ where
     }
 
     fn log_max_lde_height(&self) -> usize {
-        Val::CIRCLE_TWO_ADICITY
+        Val::CIRCLE_TWO_ADICITY - 1
     }
 
     fn commit(
@@ -197,15 +198,18 @@ where
             mat.as_cow().cfft_perm_rows()
         } else {
             // The committed matrix is the LDE of a polynomial of `committed_domain.log_n -
-            // log_blowup` coefficients, so interpolating it leaves zeros above that index.
-            // Truncating to the original coefficient count lets `domain` be smaller than the
+            // log_blowup` coefficients. The first `2^log_sub` CFFT-ordered rows of the LDE
+            // are exactly the CFFT-ordered evaluations over the smaller `sub_domain` of that
+            // size (see `eval_at_point_on_subdomain_prefix_matches_full`), so interpolating
+            // that prefix instead of the full committed matrix recovers the same coefficients
+            // at `1 / blowup` of the CFFT work. This also lets `domain` be smaller than the
             // committed LDE (e.g. a quotient domain when `log_blowup` exceeds the quotient
             // degree), which `extrapolate` would reject.
-            let log_orig = committed_domain.log_n - self.fri_params.log_blowup;
-            let mut coeffs =
-                CircleEvaluations::from_cfft_order(committed_domain, mat).interpolate();
-            let width = coeffs.width();
-            coeffs.values.truncate((1 << log_orig) * width);
+            let log_sub = committed_domain.log_n - self.fri_params.log_blowup;
+            let sub_domain = CircleDomain::new(log_sub, committed_domain.shift);
+            let coeffs =
+                CircleEvaluations::from_cfft_order(sub_domain, mat.split_rows(1 << log_sub).0)
+                    .interpolate();
             CircleEvaluations::evaluate(domain, coeffs)
                 .to_cfft_order()
                 .as_cow()
@@ -235,9 +239,7 @@ where
                 for mat in self.mmcs.get_matrices(data) {
                     let log_height = log2_strict_usize(mat.height());
                     permuted_points.entry(log_height).or_insert_with(|| {
-                        cfft_permute_slice(
-                            &CircleDomain::standard(log_height).points().collect_vec(),
-                        )
+                        cfft_permute_slice(&CircleDomain::standard(log_height).points_vec())
                     });
                 }
             }
@@ -556,6 +558,32 @@ where
 
         // Batch combination challenge
         let alpha: Challenge = challenger.sample_algebra_element();
+
+        // Per (batch, matrix) `alpha^width` and `alpha^(2*width)`, plus a shared table of
+        // `alpha`'s powers up to the widest matrix. A matrix's width is fixed by the
+        // verifier's own claimed evaluations (`rounds`), independent of the query, so
+        // computing these once here replaces recomputing them on every (query, matrix)
+        // or (query, matrix, point) inside the per-query closure below.
+        let matrix_alpha_pows: Vec<Vec<(Challenge, Challenge)>> = rounds
+            .iter()
+            .map(|(_, mats)| {
+                mats.iter()
+                    .map(|(_, points_and_values)| {
+                        let width = points_and_values.first().map_or(0, |(_, v)| v.len());
+                        let alpha_pow_width = alpha.exp_u64(width as u64);
+                        (alpha_pow_width, alpha_pow_width.square())
+                    })
+                    .collect()
+            })
+            .collect();
+        let max_width = rounds
+            .iter()
+            .flat_map(|(_, mats)| mats.iter())
+            .flat_map(|(_, points_and_values)| points_and_values.iter().map(|(_, v)| v.len()))
+            .max()
+            .unwrap_or(0);
+        let alpha_powers: Vec<Challenge> = alpha.powers().collect_n(max_width);
+
         challenger.observe(proof.first_layer_commitment.clone());
         let bivariate_beta: Challenge = challenger.sample_algebra_element();
 
@@ -663,11 +691,13 @@ where
                         .verify_batch(batch_commit, dims, idx, batch_opening.into())
                         .map_err(InputError::InputMmcsError)?;
 
-                    for (ps_at_x, (mat_domain, mat_points_and_values)) in zip_eq(
+                    for (matrix, (ps_at_x, (mat_domain, mat_points_and_values))) in zip_eq(
                         &batch_opening.opened_values,
                         mats,
                         InputError::InputShapeError,
-                    )? {
+                    )?
+                    .enumerate()
+                    {
                         let log_height = mat_domain.log_n + self.fri_params.log_blowup;
                         let bits_reduced = log_global_max_height - log_height;
                         let orig_idx = cfft_permute_index(index >> bits_reduced, log_height);
@@ -678,7 +708,7 @@ where
                         let (alpha_offset, ro) = reduced_openings
                             .entry(log_height)
                             .or_insert((Challenge::ONE, Challenge::ZERO));
-                        let alpha_pow_width_2 = alpha.exp_u64(ps_at_x.len() as u64).square();
+                        let (alpha_pow_width, alpha_pow_width_2) = matrix_alpha_pows[batch][matrix];
 
                         for (zeta_uni, ps_at_zeta) in mat_points_and_values {
                             // The claimed opening must have exactly as many
@@ -691,8 +721,15 @@ where
                             // A vanishing denominator means this opening point lands on the
                             // query point; reject the proof rather than dividing by zero.
                             *ro += *alpha_offset
-                                * deep_quotient_reduce_row(alpha, x, zeta, ps_at_x, ps_at_zeta)
-                                    .ok_or(InputError::OpeningPointMatchesQueryPoint)?;
+                                * deep_quotient_reduce_row(
+                                    alpha_pow_width,
+                                    &alpha_powers,
+                                    x,
+                                    zeta,
+                                    ps_at_x,
+                                    ps_at_zeta,
+                                )
+                                .ok_or(InputError::OpeningPointMatchesQueryPoint)?;
 
                             *alpha_offset *= alpha_pow_width_2;
                         }
@@ -701,7 +738,14 @@ where
 
                 // Verify bivariate fold and lambda correction
 
-                let (mut fri_input, fl_dims, fl_leaves): (Vec<_>, Vec<_>, Vec<_>) = zip_eq(
+                // First pass: derive the lambda-corrected leaf values and each height's
+                // first-layer (y) twiddle, without folding yet. The fold pairs a point with
+                // its negation, so the canonical (b=0) twiddle is `p.y` (sign-flipped when
+                // this query landed on the b=1 member) - the same point `p` already computed
+                // for the lambda correction, with no separate `nth_y_twiddle` scalar
+                // multiplication. All these per-height twiddles are then inverted in a single
+                // batch instead of one inversion per height.
+                let per_height: Vec<_> = zip_eq(
                     zip_eq(
                         reduced_openings,
                         first_layer_siblings,
@@ -715,6 +759,7 @@ where
 
                     let orig_size = log_height - self.fri_params.log_blowup;
                     let bits_reduced = log_global_max_height - log_height;
+                    let b = (index >> bits_reduced) & 1;
                     let orig_idx = cfft_permute_index(index >> bits_reduced, log_height);
 
                     let lde_domain = CircleDomain::standard(log_height);
@@ -723,19 +768,9 @@ where
                     let lambda_corrected = ro - lambda * p.v_n(orig_size);
 
                     let mut fl_values = vec![lambda_corrected; 2];
-                    fl_values[((index >> bits_reduced) & 1) ^ 1] = fl_sib;
+                    fl_values[b ^ 1] = fl_sib;
 
-                    let fri_input = (
-                        // - 1 here is because we have already folded a layer.
-                        log_height - 1,
-                        fold_y_row(
-                            index >> (bits_reduced + 1),
-                            // - 1 here is log_arity.
-                            log_height - 1,
-                            bivariate_beta,
-                            fl_values.iter().copied(),
-                        ),
-                    );
+                    let y_twiddle = if b == 0 { p.y } else { -p.y };
 
                     let fl_dims = Dimensions {
                         // First-layer leaves hold the queried value and its sibling.
@@ -743,9 +778,30 @@ where
                         height: 1 << (log_height - 1),
                     };
 
-                    (fri_input, fl_dims, fl_values)
+                    (log_height, y_twiddle, fl_values, fl_dims)
                 })
-                .multiunzip();
+                .collect();
+
+                let y_twiddles_inv = batch_multiplicative_inverse(
+                    &per_height.iter().map(|&(_, t, _, _)| t).collect_vec(),
+                );
+
+                let (mut fri_input, fl_dims, fl_leaves): (Vec<_>, Vec<_>, Vec<_>) = per_height
+                    .into_iter()
+                    .zip(y_twiddles_inv)
+                    .map(|((log_height, _, fl_values, fl_dims), y_twiddle_inv)| {
+                        let fri_input = (
+                            // - 1 here is because we have already folded a layer.
+                            log_height - 1,
+                            fold_row_with_inv_twiddle(
+                                y_twiddle_inv,
+                                bivariate_beta,
+                                fl_values.iter().copied(),
+                            ),
+                        );
+                        (fri_input, fl_dims, fl_values)
+                    })
+                    .multiunzip();
 
                 // sort descending
                 fri_input.reverse();
@@ -764,26 +820,14 @@ where
             },
         )
     }
-}
 
-impl<Val, InputMmcs, FriMmcs> BuildPeriodicLdeTableFast for CirclePcs<Val, InputMmcs, FriMmcs>
-where
-    Val: ComplexExtendable,
-    InputMmcs: Mmcs<Val>,
-{
-    type PeriodicDomain = CircleDomain<Val>;
-
-    fn maybe_build_periodic_lde_table_fast(
+    fn build_periodic_lde_table(
         &self,
-        periodic_cols: &[Vec<p3_commit::Val<Self::PeriodicDomain>>],
-        trace_domain: Self::PeriodicDomain,
-        quotient_domain: Self::PeriodicDomain,
-    ) -> Option<PeriodicLdeTable<p3_commit::Val<Self::PeriodicDomain>>>
-    where
-        p3_commit::Val<Self::PeriodicDomain>: Clone,
-    {
-        let table = build_periodic_lde_table_circle(periodic_cols, &trace_domain, &quotient_domain);
-        Some(table)
+        periodic_cols: &[Vec<Val>],
+        trace_domain: Self::Domain,
+        quotient_domain: Self::Domain,
+    ) -> PeriodicLdeTable<Val> {
+        build_periodic_lde_table_circle(periodic_cols, &trace_domain, &quotient_domain)
     }
 }
 

@@ -2,9 +2,7 @@ use alloc::vec::Vec;
 
 use itertools::Itertools;
 use p3_challenger::{CanObserve, FieldChallenger, GrindingChallenger};
-use p3_commit::{
-    BatchOpening, BuildPeriodicLdeTableFast, Mmcs, OpenedValues, Pcs, PolynomialSpace,
-};
+use p3_commit::{Mmcs, OpenedValues, Pcs, PolynomialSpace};
 use p3_dft::TwoAdicSubgroupDft;
 use p3_field::coset::TwoAdicMultiplicativeCoset;
 use p3_field::{ExtensionField, TwoAdicField, batch_multiplicative_inverse};
@@ -14,12 +12,12 @@ use p3_matrix::dense::{DenseMatrix, RowMajorMatrix, RowMajorMatrixCow};
 use p3_matrix::horizontally_truncated::HorizontallyTruncated;
 use p3_matrix::row_index_mapped::RowIndexMappedView;
 use rand::distr::{Distribution, StandardUniform};
-use rand::{Rng, RngExt};
+use rand::{Rng, RngExt, SeedableRng};
 use spin::Mutex;
 use tracing::info_span;
 
 use crate::verifier::FriError;
-use crate::{FriParameters, FriProof, TwoAdicFriPcs};
+use crate::{BatchMultiOpening, FriParameters, FriProof, TwoAdicFriPcs};
 
 /// A hiding FRI PCS. Both MMCSs must also be hiding; this is not enforced at compile time so it's
 /// the user's responsibility to configure.
@@ -30,19 +28,21 @@ pub struct HidingFriPcs<Val, Dft, InputMmcs, FriMmcs, R> {
     rng: Mutex<R>,
 }
 
+/// Cloning forks the RNG stream by drawing a fresh seed from the source RNG,
+/// so the clone and the original never produce the same sequence of masks.
 impl<Val, Dft, InputMmcs, FriMmcs, R> Clone for HidingFriPcs<Val, Dft, InputMmcs, FriMmcs, R>
 where
     Val: Clone,
     Dft: Clone,
     InputMmcs: Clone,
     FriMmcs: Clone,
-    R: Clone,
+    R: Rng + SeedableRng,
 {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
             num_random_codewords: self.num_random_codewords,
-            rng: Mutex::new(self.rng.lock().clone()),
+            rng: Mutex::new(R::from_rng(&mut *self.rng.lock())),
         }
     }
 }
@@ -70,7 +70,7 @@ where
     Val: TwoAdicField,
     StandardUniform: Distribution<Val>,
     Dft: TwoAdicSubgroupDft<Val>,
-    InputMmcs: Mmcs<Val, Proof: Sync, Error: Sync>,
+    InputMmcs: Mmcs<Val, MultiProof: Sync, Error: Sync>,
     FriMmcs: Mmcs<Challenge>,
     Challenge: TwoAdicField + ExtensionField<Val>,
     Challenger:
@@ -86,7 +86,7 @@ where
     /// The second item is the usual FRI proof.
     type Proof = (
         OpenedValues<Challenge>,
-        FriProof<Challenge, FriMmcs, Val, Vec<BatchOpening<Val, InputMmcs>>>,
+        FriProof<Challenge, FriMmcs, Val, Vec<BatchMultiOpening<Val, InputMmcs>>>,
     );
     type Error = FriError<FriMmcs::Error, InputMmcs::Error>;
 
@@ -456,28 +456,19 @@ where
             Pcs::<Challenge, Challenger>::commit(&self.inner, random_input_vals);
         Some(r_commit_and_data)
     }
-}
 
-impl<Val, Dft, InputMmcs, FriMmcs, R> BuildPeriodicLdeTableFast
-    for HidingFriPcs<Val, Dft, InputMmcs, FriMmcs, R>
-where
-    Val: TwoAdicField,
-    Dft: TwoAdicSubgroupDft<Val>,
-    InputMmcs: Mmcs<Val>,
-{
-    type PeriodicDomain = TwoAdicMultiplicativeCoset<Val>;
-
-    fn maybe_build_periodic_lde_table_fast(
+    fn build_periodic_lde_table(
         &self,
-        periodic_cols: &[Vec<p3_commit::Val<Self::PeriodicDomain>>],
-        trace_domain: Self::PeriodicDomain,
-        quotient_domain: Self::PeriodicDomain,
-    ) -> Option<p3_commit::PeriodicLdeTable<p3_commit::Val<Self::PeriodicDomain>>>
-    where
-        p3_commit::Val<Self::PeriodicDomain>: Clone,
-    {
-        self.inner
-            .maybe_build_periodic_lde_table_fast(periodic_cols, trace_domain, quotient_domain)
+        periodic_cols: &[Vec<Val>],
+        trace_domain: Self::Domain,
+        quotient_domain: Self::Domain,
+    ) -> p3_commit::PeriodicLdeTable<Val> {
+        Pcs::<Challenge, Challenger>::build_periodic_lde_table(
+            &self.inner,
+            periodic_cols,
+            trace_domain,
+            quotient_domain,
+        )
     }
 }
 

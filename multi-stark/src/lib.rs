@@ -12,8 +12,18 @@ extern crate alloc;
 pub mod commit;
 pub mod config;
 pub mod folder;
+pub mod keys;
 pub mod metadata;
 pub mod opening;
+pub mod packed_ext;
+pub mod proof;
+pub mod prover;
 pub mod rounds;
 pub mod selectors;
+pub mod verifier;
 pub mod zerocheck;
+
+pub use keys::{ProvingKey, VerifyingKey, setup};
+pub use proof::MultiStarkProof;
+pub use prover::prove;
+pub use verifier::{VerificationError, verify};
