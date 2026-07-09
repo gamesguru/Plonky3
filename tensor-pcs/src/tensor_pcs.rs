@@ -457,6 +457,17 @@ where
         Ok(())
     }
 
+    fn eq_eval_at_index(point: &[Chal], index: usize) -> Chal {
+        point.iter().enumerate().fold(Chal::ONE, |acc, (i, &z)| {
+            let bit_index = point.len() - 1 - i;
+            if (index >> bit_index) & 1 == 1 {
+                acc * z
+            } else {
+                acc * (Chal::ONE - z)
+            }
+        })
+    }
+
     // Context: Verifier-side validation of folded vectors inside `VerificationCtx`.
     // Why this is safe:
     // This helper method performs custom modular finite-field arithmetic (`+`, `*`, `+=`)
@@ -465,10 +476,6 @@ where
     // Standard integer arithmetic in the verifier path is safely checked.
     #[allow(clippy::arithmetic_side_effects)]
     fn verify_folded_vectors(&self) -> Result<(), TensorPcsError<M::Error>> {
-        // Compute evaluation points (column coefficients for folding)
-        let col_coeffs_poly = Poly::new_from_point(self.z_col, Chal::ONE);
-        let col_coeffs = col_coeffs_poly.as_slice();
-
         let z_row_point = Point::new(self.z_row.to_vec());
 
         for (poly_idx, v) in self.proof.folded_vectors.iter().enumerate() {
@@ -546,7 +553,7 @@ where
 
                 let mut rhs = Chal::ZERO;
                 for (j, &val) in opened_row.iter().enumerate() {
-                    rhs += col_coeffs[j] * val;
+                    rhs += Self::eq_eval_at_index(self.z_col, j) * val;
                 }
 
                 if rhs != v[idx] {
@@ -567,7 +574,7 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_brakedown::BrakedownCode;
     use p3_brakedown::sparse::CsrMatrix;
-    use p3_challenger::{CanObserve, CanSampleBits, SerializingChallenger32};
+    use p3_challenger::{CanObserve, CanSampleBits, FieldChallenger, SerializingChallenger32};
     use p3_code::{Code, IdentityCode};
     use p3_commit::Mmcs;
     use p3_field::PrimeCharacteristicRing;

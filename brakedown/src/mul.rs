@@ -1,5 +1,3 @@
-#![allow(clippy::arithmetic_side_effects)]
-
 use alloc::vec;
 
 use p3_field::{Field, add_scaled_slice_in_place};
@@ -21,7 +19,11 @@ where
     assert_eq!(a.width(), b.height(), "A, B dimensions don't match");
     let c_width = b.width();
 
-    let mut c_values = vec![F::ZERO; a.height() * c_width];
+    let c_len = a
+        .height()
+        .checked_mul(c_width)
+        .expect("output matrix dimensions overflow");
+    let mut c_values = vec![F::ZERO; c_len];
     c_values
         .par_chunks_mut(c_width)
         .enumerate()
