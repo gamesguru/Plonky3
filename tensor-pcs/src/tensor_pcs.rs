@@ -191,6 +191,10 @@ where
         assert!(self.num_queries > 0, "num_queries must be at least 1");
         let n = point.len();
         let height = self.code.message_len();
+        assert!(
+            height.is_power_of_two() && height != 0,
+            "message_len must be a nonzero power of two"
+        );
         let log_r = height.ilog2() as usize;
         assert!(
             n >= log_r,
