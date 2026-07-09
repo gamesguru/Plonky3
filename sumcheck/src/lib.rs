@@ -54,6 +54,7 @@ pub use table::{
     OpeningBatch, OpeningEvals, OpeningProtocol, OpeningRequest, PointSchedule, TableShape,
     TableSpec,
 };
+pub use virtual_poly::{VirtualPolynomial, VirtualPolynomialRoundProver};
 
 /// A claimed evaluation together with layout-specific auxiliary data.
 #[derive(Debug, Clone)]

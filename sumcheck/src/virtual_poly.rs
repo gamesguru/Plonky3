@@ -73,8 +73,10 @@ where
             "virtual-polynomial sumcheck: degree must be > 0"
         );
 
+        let residual_vars = u32::try_from(num_vars - 1)
+            .expect("virtual-polynomial sumcheck: residual variable count exceeds u32");
         let residual_size = 1_usize
-            .checked_shl((num_vars - 1) as u32)
+            .checked_shl(residual_vars)
             .expect("virtual-polynomial sumcheck: residual hypercube size overflow");
 
         let mut evals = Vec::with_capacity(degree);
