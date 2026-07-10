@@ -39,3 +39,4 @@ workspace = true
 
 [[bench]]
 name = "scaling"
+harness = false

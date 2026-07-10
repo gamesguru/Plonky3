@@ -52,11 +52,16 @@ fn bench_tensor_pcs(c: &mut Criterion) {
 
         // Benchmark Commit
         group.bench_function(BenchmarkId::new("commit", &label), |b| {
-            b.iter(|| {
-                let _commitment = black_box(
-                    <TensorPcs<F, _, _> as StarkMultilinearPcs<F, F>>::commit(&pcs, evals.clone()),
-                );
-            });
+            b.iter_batched(
+                || evals.clone(),
+                |evals_clone| {
+                    let _commitment = black_box(<TensorPcs<F, _, _> as StarkMultilinearPcs<
+                        F,
+                        F,
+                    >>::commit(&pcs, evals_clone));
+                },
+                criterion::BatchSize::SmallInput,
+            );
         });
 
         // Setup data for open / verify
