@@ -85,7 +85,7 @@ where
 }
 
 /// Errors that can occur during the execution of the `TensorPcs` protocols.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
 pub enum TensorPcsError<ME> {
     /// An error returned by the underlying MMCS.
     MmcsError(ME),
@@ -146,6 +146,11 @@ where
             assert!(
                 e.width().is_power_of_two(),
                 "Matrix width must be a power of two"
+            );
+            let log_c = e.width().ilog2() as usize;
+            assert!(
+                log_c <= 28,
+                "Matrix width is too large (log2(width) = {log_c})"
             );
             if let Some(first) = evals.first() {
                 assert_eq!(
@@ -310,6 +315,9 @@ where
         }
         let (z_row, z_col) = point.split_at(log_r);
 
+        if values.is_empty() {
+            return Err(TensorPcsError::InvalidProof("cannot verify empty batch"));
+        }
         if proof.folded_vectors.len() != values.len() {
             return Err(TensorPcsError::InvalidProof(
                 "folded_vectors length mismatch",
