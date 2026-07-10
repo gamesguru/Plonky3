@@ -339,7 +339,9 @@ where
         }
 
         let codeword_len = self.code.codeword_len();
-        assert!(codeword_len != 0, "codeword_len must be nonzero");
+        if codeword_len == 0 {
+            return Err(TensorPcsError::InvalidProof("codeword_len must be nonzero"));
+        }
         let row_indices = sample_row_indices(challenger, codeword_len, self.num_queries);
 
         // Verify proof structure, avoid panics & potential malicious out-of-bounds access
@@ -767,6 +769,7 @@ mod tests {
             Chal::from(F::new(4)),
         ];
         let mut prover_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        prover_challenger.observe(commitment.clone());
 
         let (mut values, proof) = pcs.open(&prover_data, &point, &mut prover_challenger);
 
@@ -792,6 +795,7 @@ mod tests {
 
         // Reconstruct the correct query indices from the honest transcript
         let mut verifier_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        verifier_challenger.observe(commitment.clone());
         for v in &proof.folded_vectors {
             verifier_challenger.observe_algebra_slice(v);
         }
@@ -937,6 +941,7 @@ mod tests {
             Chal::from(F::new(4)),
         ];
         let mut prover_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        prover_challenger.observe(commitment.clone());
 
         let (values, mut proof) = pcs.open(&prover_data, &point, &mut prover_challenger);
 
@@ -944,6 +949,7 @@ mod tests {
         proof.opened_rows[0][0][0] += F::ONE;
 
         let mut verifier_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        verifier_challenger.observe(commitment.clone());
         let result = pcs.verify(
             &commitment,
             &point,

@@ -73,6 +73,7 @@ fn bench_tensor_pcs(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("open", &label), |b| {
             b.iter(|| {
                 let mut challenger = SerializingChallenger32::from_hasher(vec![], Keccak256Hash);
+                p3_challenger::CanObserve::observe(&mut challenger, commitment.clone());
                 let _proof = black_box(<TensorPcs<F, _, _> as StarkMultilinearPcs<F, F>>::open(
                     &pcs,
                     &prover_data,
@@ -83,6 +84,7 @@ fn bench_tensor_pcs(c: &mut Criterion) {
         });
 
         let mut challenger = SerializingChallenger32::from_hasher(vec![], Keccak256Hash);
+        p3_challenger::CanObserve::observe(&mut challenger, commitment.clone());
         let (opened_values, proof) = <TensorPcs<F, _, _> as StarkMultilinearPcs<F, F>>::open(
             &pcs,
             &prover_data,
@@ -94,6 +96,7 @@ fn bench_tensor_pcs(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("verify", &label), |b| {
             b.iter(|| {
                 let mut challenger = SerializingChallenger32::from_hasher(vec![], Keccak256Hash);
+                p3_challenger::CanObserve::observe(&mut challenger, commitment.clone());
                 let _res = black_box(<TensorPcs<F, _, _> as StarkMultilinearPcs<F, F>>::verify(
                     &pcs,
                     &commitment,
