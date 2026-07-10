@@ -82,7 +82,7 @@ pub trait RoundProver<EF> {
 
         for _r in 0..num_rounds {
             let evals = self.round_poly();
-            debug_assert_eq!(
+            assert_eq!(
                 evals.len(),
                 degree,
                 "round_poly returned {} evals, expected degree = {degree}",

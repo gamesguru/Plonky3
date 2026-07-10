@@ -75,8 +75,11 @@ pub trait VirtualPolynomial<EF: Field> {
     /// The default implementation evaluates each point individually via [`Self::eval_at`].
     /// Implementing this directly can allow caching computations across points.
     #[inline]
-    fn eval_at_nodes(&self, index: usize, nodes: &[EF]) -> Vec<EF> {
-        nodes.iter().map(|&x| self.eval_at(x, index)).collect()
+    fn eval_at_nodes(&self, index: usize, nodes: &[EF], evals: &mut [EF]) {
+        debug_assert_eq!(nodes.len(), evals.len());
+        for (eval, &x) in evals.iter_mut().zip(nodes) {
+            *eval = self.eval_at(x, index);
+        }
     }
 
     /// Bind the next variable to `challenge`, mutating the state for the next round.
@@ -118,11 +121,6 @@ impl<EF: Field> ProductPolynomial<EF> {
         &self.factors
     }
 
-    /// Return a mutable reference to the factors of this product polynomial.
-    pub const fn factors_mut(&mut self) -> &mut Vec<Poly<EF>> {
-        &mut self.factors
-    }
-
     /// Compute the final product of the constant polynomial (evaluation at the final point).
     pub fn final_product(&self) -> EF {
         self.factors
@@ -153,22 +151,18 @@ impl<EF: Field> VirtualPolynomial<EF> for ProductPolynomial<EF> {
             .product()
     }
 
-    fn eval_at_nodes(&self, index: usize, nodes: &[EF]) -> Vec<EF> {
+    fn eval_at_nodes(&self, index: usize, nodes: &[EF], evals: &mut [EF]) {
+        debug_assert_eq!(nodes.len(), evals.len());
         let half = self.factors[0].num_evals() / 2;
-        let linears: Vec<(EF, EF)> = self
-            .factors
-            .iter()
-            .map(|factor| {
-                let lo = factor.as_slice()[index];
-                let hi = factor.as_slice()[index + half];
-                (lo, hi - lo)
-            })
-            .collect();
-
-        nodes
-            .iter()
-            .map(|&x| linears.iter().map(|&(lo, diff)| lo + diff * x).product())
-            .collect()
+        evals.fill(EF::ONE);
+        for factor in self.factors.iter() {
+            let lo = factor.as_slice()[index];
+            let hi = factor.as_slice()[index + half];
+            let diff = hi - lo;
+            for (eval, &x) in evals.iter_mut().zip(nodes) {
+                *eval *= lo + diff * x;
+            }
+        }
     }
 
     fn bind(&mut self, challenge: EF) {
@@ -246,22 +240,25 @@ where
         }
 
         use p3_maybe_rayon::prelude::*;
-        (0..residual_size).into_par_iter().par_fold_reduce(
-            || vec![EF::ZERO; degree],
-            |mut acc, index| {
-                let evals = self.polynomial.eval_at_nodes(index, &nodes);
-                for (a, e) in acc.iter_mut().zip(evals) {
-                    *a += e;
-                }
-                acc
-            },
-            |mut acc1, acc2| {
-                for (a1, a2) in acc1.iter_mut().zip(acc2) {
-                    *a1 += a2;
-                }
-                acc1
-            },
-        )
+        (0..residual_size)
+            .into_par_iter()
+            .par_fold_reduce(
+                || (vec![EF::ZERO; degree], vec![EF::ZERO; degree]),
+                |(mut acc, mut evals_buf), index| {
+                    self.polynomial.eval_at_nodes(index, &nodes, &mut evals_buf);
+                    for (a, &e) in acc.iter_mut().zip(&evals_buf) {
+                        *a += e;
+                    }
+                    (acc, evals_buf)
+                },
+                |(mut acc1, buf), (acc2, _)| {
+                    for (a1, a2) in acc1.iter_mut().zip(acc2) {
+                        *a1 += a2;
+                    }
+                    (acc1, buf)
+                },
+            )
+            .0
     }
 }
 
@@ -491,7 +488,8 @@ mod tests {
             f_val * g_val + h_val
         }
 
-        fn eval_at_nodes(&self, index: usize, nodes: &[EF]) -> Vec<EF> {
+        fn eval_at_nodes(&self, index: usize, nodes: &[EF], evals: &mut [EF]) {
+            debug_assert_eq!(nodes.len(), evals.len());
             let half = self.f.num_evals() / 2;
             let f_lo = self.f.as_slice()[index];
             let f_hi = self.f.as_slice()[index + half];
@@ -505,15 +503,12 @@ mod tests {
             let h_hi = self.h.as_slice()[index + half];
             let h_diff = h_hi - h_lo;
 
-            nodes
-                .iter()
-                .map(|&x| {
-                    let f_val = f_lo + f_diff * x;
-                    let g_val = g_lo + g_diff * x;
-                    let h_val = h_lo + h_diff * x;
-                    f_val * g_val + h_val
-                })
-                .collect()
+            for (eval, &x) in evals.iter_mut().zip(nodes) {
+                let f_val = f_lo + f_diff * x;
+                let g_val = g_lo + g_diff * x;
+                let h_val = h_lo + h_diff * x;
+                *eval = f_val * g_val + h_val;
+            }
         }
 
         fn bind(&mut self, challenge: EF) {
