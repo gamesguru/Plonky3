@@ -499,6 +499,8 @@ where
 
             // Linear constraint check: sum beta_j(z_col) * M_{idx, j} == v[idx]
             // where idx is sampled row of the committed matrix.
+            let eq_table = Poly::new_from_point(self.z_col, Chal::ONE);
+            let eq = eq_table.as_slice();
             for (query_idx, &idx) in self.row_indices.iter().enumerate() {
                 let opened_matrix_evals = &self.proof.opened_rows[query_idx];
                 if opened_matrix_evals.len() != self.values.len() {
@@ -512,12 +514,11 @@ where
                     return Err(TensorPcsError::InvalidProof("opened row width mismatch"));
                 }
 
-                let eq_table = Poly::new_from_point(self.z_col, Chal::ONE);
                 let mut rhs = Chal::ZERO;
                 for (j, &val) in opened_row.iter().enumerate() {
                     #[allow(clippy::arithmetic_side_effects)]
                     {
-                        rhs += eq_table.as_slice()[j] * val;
+                        rhs += eq[j] * val;
                     }
                 }
 
