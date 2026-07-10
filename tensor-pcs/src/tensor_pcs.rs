@@ -4,6 +4,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
+use p3_challenger::CanSampleBits;
 use p3_code::{LinearCode, SystematicCode};
 use p3_commit::Mmcs;
 use p3_field::{ExtensionField, Field};
@@ -181,7 +182,6 @@ where
     //    or bitshift panics here indicate integration bugs, not security vulnerabilities.
     // 2. Finite field arithmetic (`+`, `*`, `+=`) naturally reduces modulo the prime modulus P,
     //    meaning it mathematically can never overflow or panic.
-    #[allow(clippy::arithmetic_side_effects)]
     fn open(
         &self,
         prover_data: &Self::ProverData,
@@ -223,7 +223,10 @@ where
             let mut v = vec![Chal::ZERO; m.height()];
             for (i, row) in m.rows().enumerate() {
                 for (j, val) in row.into_iter().enumerate() {
-                    v[i] += col_coeffs[j] * val;
+                    #[allow(clippy::arithmetic_side_effects)]
+                    {
+                        v[i] += col_coeffs[j] * val;
+                    }
                 }
             }
 
@@ -255,29 +258,11 @@ where
 
         let codeword_len = self.code.codeword_len();
         assert!(codeword_len != 0, "codeword_len must be nonzero");
-        let bits = codeword_len
-            .checked_next_power_of_two()
-            .expect("codeword_len too large")
-            .ilog2() as usize;
-
-        assert!(self.num_queries > 0, "num_queries must be at least 1");
-        let num_queries = self.num_queries.min(codeword_len);
-        let mut row_indices = Vec::with_capacity(num_queries);
-        if num_queries == codeword_len {
-            row_indices.extend(0..codeword_len);
-        } else {
-            let mut seen = alloc::collections::BTreeSet::new();
-            while row_indices.len() < num_queries {
-                let idx = challenger.sample_bits(bits);
-                if idx < codeword_len && seen.insert(idx) {
-                    row_indices.push(idx);
-                }
-            }
-        }
+        let row_indices = sample_row_indices(challenger, codeword_len, self.num_queries);
 
         // Open sampled rows of the encoded matrices
-        let mut opened_rows = Vec::with_capacity(num_queries);
-        let mut proofs = Vec::with_capacity(num_queries);
+        let mut opened_rows = Vec::with_capacity(row_indices.len());
+        let mut proofs = Vec::with_capacity(row_indices.len());
         for &idx in &row_indices {
             let opening = self.mmcs.open_batch(idx, &prover_data.mmcs_data);
             // opened_values is Vec<Vec<F>> where inner Vec is the row of width W
@@ -346,31 +331,11 @@ where
         }
 
         let codeword_len = self.code.codeword_len();
-        if codeword_len == 0 {
-            return Err(TensorPcsError::InvalidProof("codeword_len must be nonzero"));
-        }
-        let bits = codeword_len
-            .checked_next_power_of_two()
-            .ok_or(TensorPcsError::InvalidProof("codeword_len too large"))?
-            .ilog2() as usize;
-
-        let num_queries = self.num_queries.min(codeword_len);
-        let mut row_indices = Vec::with_capacity(num_queries);
-
-        if num_queries == codeword_len {
-            row_indices.extend(0..codeword_len);
-        } else {
-            let mut seen = alloc::collections::BTreeSet::new();
-            while row_indices.len() < num_queries {
-                let idx = challenger.sample_bits(bits);
-                if idx < codeword_len && seen.insert(idx) {
-                    row_indices.push(idx);
-                }
-            }
-        }
+        assert!(codeword_len != 0, "codeword_len must be nonzero");
+        let row_indices = sample_row_indices(challenger, codeword_len, self.num_queries);
 
         // Verify proof structure, avoid panics & potential malicious out-of-bounds access
-        if proof.opened_rows.len() != num_queries {
+        if proof.opened_rows.len() != row_indices.len() {
             return Err(TensorPcsError::InvalidProof("opened_rows length mismatch"));
         }
         if proof.mmcs_proofs.len() != row_indices.len() {
@@ -457,24 +422,12 @@ where
         Ok(())
     }
 
-    fn eq_eval_at_index(point: &[Chal], index: usize) -> Chal {
-        point.iter().enumerate().fold(Chal::ONE, |acc, (i, &z)| {
-            let bit_index = point.len() - 1 - i;
-            if (index >> bit_index) & 1 == 1 {
-                acc * z
-            } else {
-                acc * (Chal::ONE - z)
-            }
-        })
-    }
-
     // Context: Verifier-side validation of folded vectors inside `VerificationCtx`.
     // Why this is safe:
     // This helper method performs custom modular finite-field arithmetic (`+`, `*`, `+=`)
     // over field and binomial extension field elements. Because these operations natively
     // reduce results modulo P, they mathematically cannot overflow or panic.
     // Standard integer arithmetic in the verifier path is safely checked.
-    #[allow(clippy::arithmetic_side_effects)]
     fn verify_folded_vectors(&self) -> Result<(), TensorPcsError<M::Error>> {
         let z_row_point = Point::new(self.z_row.to_vec());
 
@@ -551,9 +504,13 @@ where
                     return Err(TensorPcsError::InvalidProof("opened row width mismatch"));
                 }
 
+                let eq_table = Poly::new_from_point(self.z_col, Chal::ONE);
                 let mut rhs = Chal::ZERO;
                 for (j, &val) in opened_row.iter().enumerate() {
-                    rhs += Self::eq_eval_at_index(self.z_col, j) * val;
+                    #[allow(clippy::arithmetic_side_effects)]
+                    {
+                        rhs += eq_table.as_slice()[j] * val;
+                    }
                 }
 
                 if rhs != v[idx] {
@@ -565,6 +522,36 @@ where
     }
 }
 
+fn sample_row_indices<Challenger>(
+    challenger: &mut Challenger,
+    codeword_len: usize,
+    num_queries: usize,
+) -> Vec<usize>
+where
+    Challenger: CanSampleBits<usize>,
+{
+    assert!(num_queries > 0, "num_queries must be at least 1");
+    let bits = codeword_len
+        .checked_next_power_of_two()
+        .expect("codeword_len too large")
+        .ilog2() as usize;
+
+    let num_queries = num_queries.min(codeword_len);
+    let mut row_indices = Vec::with_capacity(num_queries);
+    if num_queries == codeword_len {
+        row_indices.extend(0..codeword_len);
+    } else {
+        let mut seen = alloc::collections::BTreeSet::new();
+        while row_indices.len() < num_queries {
+            let idx = challenger.sample_bits(bits);
+            if idx < codeword_len && seen.insert(idx) {
+                row_indices.push(idx);
+            }
+        }
+    }
+    row_indices
+}
+
 #[cfg(test)]
 mod tests {
     extern crate alloc;
@@ -574,7 +561,7 @@ mod tests {
     use p3_baby_bear::BabyBear;
     use p3_brakedown::BrakedownCode;
     use p3_brakedown::sparse::CsrMatrix;
-    use p3_challenger::{CanObserve, CanSampleBits, FieldChallenger, SerializingChallenger32};
+    use p3_challenger::{CanObserve, FieldChallenger, SerializingChallenger32};
     use p3_code::{Code, IdentityCode};
     use p3_commit::Mmcs;
     use p3_field::PrimeCharacteristicRing;
@@ -586,7 +573,7 @@ mod tests {
     use p3_symmetric::{CompressionFunctionFromHasher, SerializingHasher};
     use rand::SeedableRng;
 
-    use crate::tensor_pcs::TensorPcs;
+    use crate::tensor_pcs::{TensorPcs, sample_row_indices};
     use crate::{StarkMultilinearPcs, TensorPcsProverData};
 
     #[test]
@@ -807,19 +794,8 @@ mod tests {
             };
             verifier_challenger.observe_algebra_element(e);
         }
-        let bits = codeword_len.next_power_of_two().ilog2() as usize;
-        let num_queries = pcs.num_queries.min(codeword_len);
-        let mut row_indices = Vec::with_capacity(num_queries);
-        if num_queries == codeword_len {
-            row_indices.extend(0..codeword_len);
-        } else {
-            while row_indices.len() < num_queries {
-                let idx = verifier_challenger.sample_bits(bits);
-                if idx < codeword_len && !row_indices.contains(&idx) {
-                    row_indices.push(idx);
-                }
-            }
-        }
+        let row_indices =
+            sample_row_indices(&mut verifier_challenger, codeword_len, pcs.num_queries);
 
         let ctx = super::VerificationCtx {
             pcs: &pcs,
@@ -903,16 +879,8 @@ mod tests {
             };
             verifier_challenger.observe_algebra_element(e);
         }
-        let bits = codeword_len.next_power_of_two().ilog2() as usize;
-        let mut row_indices = Vec::with_capacity(pcs.num_queries);
-        while row_indices.len() < pcs.num_queries {
-            let idx = verifier_challenger.sample_bits(bits);
-            if idx < codeword_len
-                && (codeword_len <= pcs.num_queries || !row_indices.contains(&idx))
-            {
-                row_indices.push(idx);
-            }
-        }
+        let row_indices =
+            sample_row_indices(&mut verifier_challenger, codeword_len, pcs.num_queries);
 
         let ctx = super::VerificationCtx {
             pcs: &pcs,

@@ -32,10 +32,10 @@ p3-merkle-tree = { path = "../merkle-tree" }
 p3-symmetric = { path = "../symmetric" }
 rand = { workspace = true }
 rand_chacha = "0.10"
+criterion.workspace = true
 
 [lints]
 workspace = true
 
 [[bench]]
 name = "scaling"
-harness = false
