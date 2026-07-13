@@ -1,0 +1,235 @@
+#![allow(clippy::arithmetic_side_effects)]
+
+use alloc::boxed::Box;
+
+use p3_code::{
+    Code, CodeOrFamily, LinearCode, SystematicCode, SystematicCodeOrFamily, SystematicLinearCode,
+};
+use p3_field::Field;
+use p3_matrix::Matrix;
+use p3_matrix::dense::RowMajorMatrix;
+use p3_matrix::stack::VerticalPair;
+
+use crate::mul::mul_csr_dense;
+use crate::sparse::CsrMatrix;
+
+/// Spielman-based code, described in Brakedown paper
+#[derive(Debug)]
+pub struct BrakedownCode<F, IC>
+where
+    F: Field,
+    IC: SystematicCode<F, RowMajorMatrix<F>>,
+{
+    /// Sparse matrix A (mapping messages to intermediate words)
+    pub a: CsrMatrix<F>,
+    /// Sparse matrix B (mapping inner codewords to final parity)
+    pub b: CsrMatrix<F>,
+    /// Inner code (applied to words mapped by A)
+    pub inner_code: Box<IC>,
+}
+
+impl<F, IC> BrakedownCode<F, IC>
+where
+    F: Field,
+    IC: SystematicCode<F, RowMajorMatrix<F>>,
+{
+    fn y_len(&self) -> usize {
+        self.a.height()
+    }
+
+    fn z_parity_len(&self) -> usize {
+        self.inner_code.parity_len()
+    }
+
+    fn v_len(&self) -> usize {
+        self.b.height()
+    }
+}
+
+impl<F, IC, In> CodeOrFamily<F, In> for BrakedownCode<F, IC>
+where
+    F: Field,
+    IC: SystematicCode<F, RowMajorMatrix<F>>,
+    IC::Out: Sync,
+    In: Matrix<F> + Sync,
+{
+    type Out = VerticalPair<In, VerticalPair<IC::Out, RowMajorMatrix<F>>>;
+
+    fn encode_batch(&self, x: In) -> Self::Out {
+        let y = mul_csr_dense(&self.a, &x); // y = Ax
+        let z = self.inner_code.encode_batch(y); // z = InnerCode(y)
+        let v = mul_csr_dense(&self.b, &z); // v = Bz
+
+        let parity = VerticalPair::new(z, v);
+        VerticalPair::new(x, parity)
+    }
+}
+
+impl<F, IC, In> Code<F, In> for BrakedownCode<F, IC>
+where
+    F: Field,
+    IC: SystematicCode<F, RowMajorMatrix<F>>,
+    IC::Out: Sync,
+    In: Matrix<F> + Sync,
+{
+    fn message_len(&self) -> usize {
+        self.a.width()
+    }
+
+    fn codeword_len(&self) -> usize {
+        <Self as Code<F, In>>::message_len(self) + <Self as SystematicCode<F, In>>::parity_len(self)
+    }
+}
+
+// Stubs
+impl<F, IC, In> SystematicCodeOrFamily<F, In> for BrakedownCode<F, IC>
+where
+    F: Field,
+    IC: SystematicCode<F, RowMajorMatrix<F>>,
+    IC::Out: Sync,
+    In: Matrix<F> + Sync,
+{
+}
+
+impl<F, IC, In> SystematicCode<F, In> for BrakedownCode<F, IC>
+where
+    F: Field,
+    IC: SystematicCode<F, RowMajorMatrix<F>>,
+    IC::Out: Sync,
+    In: Matrix<F> + Sync,
+{
+    fn parity_len(&self) -> usize {
+        self.y_len() + self.z_parity_len() + self.v_len()
+    }
+}
+
+impl<F, IC, In> LinearCode<F, In> for BrakedownCode<F, IC>
+where
+    F: Field,
+    IC: SystematicCode<F, RowMajorMatrix<F>>,
+    IC::Out: Sync,
+    In: Matrix<F> + Sync,
+{
+}
+
+impl<F, IC, In> SystematicLinearCode<F, In> for BrakedownCode<F, IC>
+where
+    F: Field,
+    IC: SystematicCode<F, RowMajorMatrix<F>>,
+    IC::Out: Sync,
+    In: Matrix<F> + Sync,
+{
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec;
+
+    use p3_field::PrimeCharacteristicRing;
+    use p3_mersenne_31::Mersenne31;
+
+    use super::*;
+    use crate::macros::{brakedown, brakedown_to_dense};
+
+    type F = Mersenne31;
+    type Mat = RowMajorMatrix<F>;
+
+    #[test]
+    fn test_brakedown_methods() {
+        let brakedown = brakedown!(
+            237,
+            29,
+            11,
+            41,
+            60,
+            15,
+            brakedown_to_dense!(29, 4, 0, 5, 7, 0)
+        );
+
+        assert_eq!(brakedown.y_len(), 29);
+        assert_eq!(
+            brakedown.z_parity_len(),
+            Code::<F, Mat>::codeword_len(&*brakedown.inner_code)
+                - Code::<F, Mat>::message_len(&*brakedown.inner_code)
+        );
+        assert_eq!(brakedown.v_len(), 60);
+    }
+
+    #[test]
+    fn test_brakedown_systematic_code_impl() {
+        let brakedown = brakedown!(
+            237,
+            29,
+            11,
+            41,
+            60,
+            15,
+            brakedown_to_dense!(29, 4, 0, 5, 7, 0)
+        );
+        assert_eq!(
+            <BrakedownCode<F, _> as SystematicCode<F, Mat>>::parity_len(&brakedown),
+            brakedown.y_len() + brakedown.z_parity_len() + brakedown.v_len()
+        );
+    }
+
+    #[test]
+    fn test_brakedown_code_impl() {
+        let brakedown = brakedown!(
+            237,
+            29,
+            11,
+            41,
+            60,
+            15,
+            brakedown_to_dense!(29, 4, 0, 5, 7, 0)
+        );
+        assert_eq!(
+            <BrakedownCode<F, _> as Code<F, Mat>>::message_len(&brakedown),
+            brakedown.a.width()
+        );
+        assert_eq!(
+            <BrakedownCode<F, _> as Code<F, Mat>>::codeword_len(&brakedown),
+            <BrakedownCode<F, _> as Code<F, Mat>>::message_len(&brakedown)
+                + <BrakedownCode<F, _> as SystematicCode<F, Mat>>::parity_len(&brakedown)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "A, B dimensions don't match")]
+    fn test_brakedown_message_mismatch_panic() {
+        let brakedown = brakedown!(
+            237,
+            29,
+            11,
+            41,
+            60,
+            15,
+            brakedown_to_dense!(29, 4, 0, 5, 7, 0)
+        );
+        // message_len of brakedown is 237, so let's pass a matrix of height 100
+        let wrong_height_msg = RowMajorMatrix::new(vec![F::ZERO; 100 * 2], 2);
+        let _ = brakedown.encode_batch(wrong_height_msg);
+    }
+
+    #[test]
+    #[should_panic(expected = "Message height mismatch")]
+    fn test_dense_code_message_mismatch_panic() {
+        use crate::DenseLinearCode;
+        let generator = RowMajorMatrix::new(vec![F::ZERO; 10 * 10], 10);
+        let dense_code = DenseLinearCode::new(10, 20, generator);
+        // message_len is 10, so let's pass a matrix of height 5
+        let wrong_height_msg = RowMajorMatrix::new(vec![F::ZERO; 5 * 2], 2);
+        let _ = dense_code.encode_batch(wrong_height_msg);
+    }
+
+    #[test]
+    #[should_panic(expected = "codeword_len must be >= message_len")]
+    fn test_dense_code_invalid_codeword_len() {
+        use crate::DenseLinearCode;
+        let generator = RowMajorMatrix::new(vec![F::ZERO; 10 * 10], 10);
+        // codeword_len (5) is less than message_len (10)
+        let dense_code = DenseLinearCode::new(10, 5, generator);
+        let msg = RowMajorMatrix::new(vec![F::ZERO; 10 * 2], 2);
+        let _ = dense_code.encode_batch(msg);
+    }
+}

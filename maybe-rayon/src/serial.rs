@@ -232,6 +232,7 @@ where
 }
 
 /// Always 1: there is only one thread of execution in a serial build.
+#[must_use]
 pub const fn current_num_threads() -> usize {
     1
 }

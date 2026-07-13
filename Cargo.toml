@@ -7,8 +7,10 @@ members = [
     "blake3",
     "blake3-air",
     "bn254",
+    "brakedown",
     "challenger",
     "circle",
+    "code",
     "commit",
     "dft",
     "examples",
@@ -39,6 +41,7 @@ members = [
     "sha256",
     "sumcheck",
     "symmetric",
+    "tensor-pcs",
     "uni-stark",
     "util",
     "whir",
@@ -49,6 +52,7 @@ members = [
 rust.rust_2018_idioms = { level = "deny", priority = -1 }
 rust.unused_must_use = "deny"
 rust.rust_2024_incompatible_pat = "warn"
+rust.unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }
 rustdoc.all = "warn"
 
 [workspace.lints.clippy]
@@ -66,6 +70,18 @@ unused_peekable = "allow"
 tuple_array_conversions = "allow"
 transmute_undefined_repr = "allow"
 cognitive_complexity = "allow"
+
+# Shared PR security & clippy lints
+pedantic = { level = "allow", priority = -1 }
+perf = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+arithmetic_side_effects = "allow"
+undocumented_unsafe_blocks = "allow"
+dbg_macro = "warn"
+get_unwrap = "warn"
 
 [workspace.dependencies]
 blake3 = { version = "1.8", default-features = false }
@@ -105,8 +121,10 @@ p3-baby-bear = { path = "baby-bear", version = "0.6.0" }
 p3-blake3 = { path = "blake3", version = "0.6.0" }
 p3-blake3-air = { path = "blake3-air", version = "0.6.0" }
 p3-bn254 = { path = "bn254", version = "0.6.0" }
+p3-brakedown = { path = "brakedown", version = "0.6.0" }
 p3-challenger = { path = "challenger", version = "0.6.0" }
 p3-circle = { path = "circle", version = "0.6.0" }
+p3-code = { path = "code", version = "0.6.0" }
 p3-commit = { path = "commit", version = "0.6.0" }
 p3-dft = { path = "dft", version = "0.6.0" }
 p3-examples = { path = "examples", version = "0.3.0" }
@@ -136,6 +154,7 @@ p3-security = { path = "security", version = "0.6.0" }
 p3-sha256 = { path = "sha256", version = "0.6.0" }
 p3-sumcheck = { path = "sumcheck", version = "0.6.0" }
 p3-symmetric = { path = "symmetric", version = "0.6.0" }
+p3-tensor-pcs = { path = "tensor-pcs", version = "0.6.0" }
 p3-uni-stark = { path = "uni-stark", version = "0.6.0" }
 p3-util = { path = "util", version = "0.6.0" }
 p3-whir = { path = "whir", version = "0.6.0" }

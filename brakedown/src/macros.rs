@@ -1,0 +1,41 @@
+macro_rules! brakedown {
+    ($a_width:literal, $a_height:literal, $a_density:literal,
+     $b_width:literal, $b_height:literal, $b_density:literal,
+     $inner_code:expr) => {{
+        let mut rng = <::rand_chacha::ChaCha20Rng as ::rand::SeedableRng>::seed_from_u64(0);
+        let a = $crate::sparse::CsrMatrix::<F>::rand_fixed_col_weight(
+            &mut rng, $a_height, $a_width, $a_density,
+        );
+        let b = $crate::sparse::CsrMatrix::<F>::rand_fixed_col_weight(
+            &mut rng, $b_height, $b_width, $b_density,
+        );
+        let inner_code = ::alloc::boxed::Box::new($inner_code);
+        $crate::BrakedownCode { a, b, inner_code }
+    }};
+}
+
+macro_rules! brakedown_to_dense {
+    ($a_width:literal, $a_height:literal, $a_density:literal,
+     $b_width:literal, $b_height:literal, $b_density:literal) => {{
+        use rand::RngExt;
+        let message_len: usize = $a_height;
+        let codeword_len: usize = $b_width;
+        let parity_height = codeword_len
+            .checked_sub(message_len)
+            .expect("brakedown_to_dense: codeword_len must be >= message_len");
+        let mut rng = <::rand_chacha::ChaCha20Rng as ::rand::SeedableRng>::seed_from_u64(0);
+        let mut parity_generator = ::alloc::vec![F::ZERO; parity_height * message_len];
+        for i in 0..(parity_height * message_len) {
+            parity_generator[i] = rng.random();
+        }
+        let generator = p3_matrix::dense::RowMajorMatrix::new(parity_generator, message_len);
+        let dense_code = $crate::DenseLinearCode::new(message_len, codeword_len, generator);
+
+        $crate::macros::brakedown!(
+            $a_width, $a_height, $a_density, $b_width, $b_height, $b_density, dense_code
+        )
+    }};
+}
+
+pub(crate) use brakedown;
+pub(crate) use brakedown_to_dense;
