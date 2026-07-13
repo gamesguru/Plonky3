@@ -22,10 +22,14 @@ pub struct CsrMatrix<T> {
 }
 
 impl<T: Clone + Default + Send + Sync> CsrMatrix<T> {
-    fn row_index_range(&self, r: usize) -> Range<usize> {
-        debug_assert!(r < self.height());
-        self.row_indices[r]..self.row_indices[r + 1]
-    }
+fn row_index_range(&self, r: usize) -> Range<usize> {
+    assert!(
+        r < self.height(),
+        "row index out of bounds (r = {r}, height = {})",
+        self.height()
+    );
+    self.row_indices[r]..self.row_indices[r + 1]
+}
 
     #[must_use]
     pub fn sparse_row(&self, r: usize) -> &[(usize, T)] {

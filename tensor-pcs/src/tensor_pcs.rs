@@ -221,6 +221,7 @@ where
         let matrices = self.mmcs.get_matrices(&prover_data.mmcs_data);
         let mut folded_vectors = Vec::with_capacity(matrices.len());
         let mut folded_evals = Vec::with_capacity(matrices.len());
+        let z_row_point = Point::new(z_row.to_vec());
 
         for m in matrices {
             assert_eq!(m.width(), width, "Matrix width must match 2^log_c");
@@ -244,7 +245,7 @@ where
             // elements correspond to the un-encoded message (the multilinear evaluations).
             // Evaluation e = v(z_row)
             let v_message = v[..height].to_vec();
-            let e = Poly::new(v_message).eval_ext(&Point::new(z_row.to_vec()));
+            let e = Poly::new(v_message).eval_ext(&z_row_point);
             folded_evals.push(vec![e]);
             folded_vectors.push(v);
         }
@@ -863,6 +864,7 @@ mod tests {
             Chal::from(F::new(5)),
         ];
         let mut prover_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        prover_challenger.observe(commitment.clone());
 
         let (values, mut proof) = pcs.open(&prover_data, &point, &mut prover_challenger);
 
@@ -881,6 +883,7 @@ mod tests {
 
         // Reconstruct the correct query indices from the honest transcript
         let mut verifier_challenger = SerializingChallenger32::<F, _>::from_hasher(vec![], hash);
+        verifier_challenger.observe(commitment.clone());
         let mut honest_proof = proof.clone();
         honest_proof.folded_vectors[0][last_idx] -= Chal::ONE; // revert the mutation for challenger
         for v in &honest_proof.folded_vectors {
