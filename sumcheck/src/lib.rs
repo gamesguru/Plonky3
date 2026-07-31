@@ -42,6 +42,7 @@ pub mod table;
 pub mod test_util;
 #[cfg(test)]
 mod tests;
+pub mod virtual_poly;
 pub mod zk;
 
 pub use data::{SumcheckData, verify_final_sumcheck_rounds};
@@ -53,6 +54,7 @@ pub use table::{
     OpeningBatch, OpeningEvals, OpeningProtocol, OpeningRequest, PointSchedule, TableShape,
     TableSpec,
 };
+pub use virtual_poly::{ProductPolynomial, VirtualPolynomial, VirtualPolynomialRoundProver};
 
 /// A claimed evaluation together with layout-specific auxiliary data.
 #[derive(Debug, Clone)]

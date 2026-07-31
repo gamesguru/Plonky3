@@ -45,5 +45,9 @@ rand.workspace = true
 name = "sumcheck"
 harness = false
 
+[[bench]]
+name = "virtual_poly"
+harness = false
+
 [lints]
 workspace = true
